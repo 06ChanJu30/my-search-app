@@ -17,7 +17,7 @@ except ImportError:
 
 # --- 설정 ---
 # [V13] 1단계에서 복사한 Google 드라이브 공유 링크를 여기에 붙여넣으세요!
-GOOGLE_DRIVE_URL = "여기https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing에_구글_드라이브_공유_링크_붙여넣기"
+GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing"
 PDF_FILE_NAME = "standard.pdf" # 다운로드 후 저장될 파일 이름
 DATA_JSON_NAME = "standards_data.json"
 INDEX_FILE_NAME = "toc.index" 
@@ -255,4 +255,5 @@ else:
                 use_container_width=True
             )
     except FileNotFoundError:
+
         st.error(f"'{pdf_path}' 파일을 찾을 수 없습니다. 앱을 새로고침하세요.")
