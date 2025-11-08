@@ -1,9 +1,10 @@
 import re
 import json
 import os
-import fitz  # [V23] PDF 본문을 읽기 위해 fitz 임포트
+import fitz
+import gdown  # [V24] gdown 임포트
 
-# [V23] AI 검색 모듈 임포트
+# [V24] AI 검색 모듈 임포트
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -18,12 +19,14 @@ except ImportError:
     exit()
 
 # --- 설정 ---
-PDF_FILE_NAME = "standard.pdf" 
+# [V24] 1단계에서 복사한 Google 드라이브 공유 링크를 여기에 붙여넣으세요!
+GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing"
+PDF_FILE_NAME = "standard.pdf" # 다운로드 후 저장될 파일 이름
 OUTPUT_JSON_NAME = "standards_data.json"
 OUTPUT_INDEX_NAME = "toc.index"
 # ---
 
-# [V23] PDF 목차
+# [V21] PDF 목차(2~4p)에 'page_start'와 'page_end'를 정확하게 적용
 MANUAL_TOC_DATA = [
     {"id": "가설-01", "title": "가설사무실 안전기준", "page_start": 5, "page_end": 6},
     {"id": "가설-02", "title": "컨테이너 반입 프로세스", "page_start": 7, "page_end": 7},
@@ -65,17 +68,15 @@ MANUAL_TOC_DATA = [
     {"id": "MSDS-01", "title": "물질안전보건 일반", "page_start": 100, "page_end": 103}
 ]
 
-
 def normalize_text(text):
     text = text.lower()
     text = re.sub(r'[\s\W_]+', '', text)
     return text
 
 def create_database(data_list, pdf_path):
-    """[V23] JSON과 FAISS 인덱스를 생성합니다. (키워드/AI 모두 본문 포함)"""
     
     if not os.path.exists(pdf_path):
-        print(f"!!! 오류: '{pdf_path}' 파일을 찾을 수 없습니다.")
+        print(f"!!! '{pdf_path}' 파일을 찾을 수 없습니다.")
         return
 
     doc = fitz.open(pdf_path)
@@ -84,8 +85,6 @@ def create_database(data_list, pdf_path):
     
     print("1. JSON 데이터베이스 및 AI 검색용 텍스트 추출 중...")
     for item in data_list:
-        
-        # --- PDF 본문 텍스트 추출 ---
         page_content = ""
         try:
             for page_num in range(item["page_start"], item["page_end"] + 1):
@@ -95,40 +94,39 @@ def create_database(data_list, pdf_path):
         except Exception as e:
             print(f"경고: {item['id']}의 페이지({item['page_start']}) 읽기 실패: {e}")
             
-        
-        # [V23 수정] 키워드 검색(search_normalized)과 AI 검색(texts_to_embed) 모두
-        # '제목' + '본문' 텍스트를 사용하도록 통일합니다.
-        
         full_text_blob = item["id"] + " " + item["title"] + " " + page_content
         
-        # Task 1: 키워드 검색용 (JSON)
         item["search_normalized"] = normalize_text(full_text_blob)
         processed_data.append(item)
-        
-        # Task 2: AI 검색용 (FAISS)
         texts_to_embed.append(full_text_blob)
     
     doc.close()
 
-    # 1. JSON 파일 저장
     with open(OUTPUT_JSON_NAME, 'w', encoding='utf-8') as f:
         json.dump(processed_data, f, ensure_ascii=False, indent=4)
     print(f"-> '{OUTPUT_JSON_NAME}' 생성 완료 ({len(processed_data)}개 항목)")
 
-    # 2. AI 검색 인덱스(FAISS) 생성
     print("2. AI 검색 인덱스 생성 중... (모델 다운로드 포함, 1~2분 소요)")
     try:
         model = SentenceTransformer('jhgan/ko-sroberta-multitask')
         embeddings = model.encode(texts_to_embed, show_progress_bar=True)
-        
         dimension = embeddings.shape[1]
         index = faiss.IndexFlatL2(dimension)
         index.add(np.array(embeddings).astype('float32'))
-        
         faiss.write_index(index, OUTPUT_INDEX_NAME)
         print(f"-> '{OUTPUT_INDEX_NAME}' 생성 완료!")
     except Exception as e:
         print(f"!!! AI 인덱스 생성 실패: {e}")
 
 if __name__ == "__main__":
-    create_database(MANUAL_TOC_DATA, PDF_FILE_NAME)
+    # [V24] 실행 시 PDF 다운로드
+    if GOOGLE_DRIVE_URL == "여기에_구글_드라이브_공유_링크_붙여넣기":
+        print("="*50)
+        print("!!! 오류: 'data_builder.py' 파일 20번째 줄의")
+        print("GOOGLE_DRIVE_URL 변수에 Google 드라이브 링크를 입력하세요.")
+        print("="*50)
+    else:
+        print(f"Google 드라이브에서 '{PDF_FILE_NAME}' 다운로드 중...")
+        gdown.download(GOOGLE_DRIVE_URL, PDF_FILE_NAME, quiet=False, fuzzy=True)
+        print("다운로드 완료. 데이터베이스 생성을 시작합니다.")
+        create_database(MANUAL_TOC_DATA, PDF_FILE_NAME)
