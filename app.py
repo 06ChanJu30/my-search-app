@@ -5,9 +5,9 @@ import os
 import re
 import fitz  # PyMuPDF
 import numpy as np
-import gdown # [V13] gdown 임포트
+import gdown 
 
-# [V13] AI 모듈 임포트
+# [V15] AI 모듈 임포트
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -16,30 +16,13 @@ except ImportError:
     st.stop()
 
 # --- 설정 ---
-# [V13] 1단계에서 복사한 Google 드라이브 공유 링크를 여기에 붙여넣으세요!
-GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing"
-PDF_FILE_NAME = "standard.pdf" # 다운로드 후 저장될 파일 이름
+# [V15] 새 PDF 링크가 적용되었는지 확인 (지난번 V25 data_builder에 맞는 링크여야 함)
+GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing" # (지난번 새 PDF 링크)
+PDF_FILE_NAME = "standard.pdf"
 DATA_JSON_NAME = "standards_data.json"
 INDEX_FILE_NAME = "toc.index" 
 SYNONYM_FILE_NAME = "synonyms.json"
 # ---
-
-# [V13] 앱 실행 시 Google 드라이브에서 PDF를 다운로드하는 함수
-@st.cache_resource
-def download_pdf_from_gdrive(url, output_path):
-    """Google 드라이브에서 PDF를 다운로드합니다."""
-    if os.path.exists(output_path):
-        print(f"'{output_path}' 파일이 이미 존재합니다. 다운로드를 건너뜁니다.")
-        return output_path
-    try:
-        print(f"'{output_path}' 다운로드 중...")
-        gdown.download(url, output_path, quiet=False, fuzzy=True)
-        print("다운로드 완료.")
-        return output_path
-    except Exception as e:
-        st.error(f"PDF 파일 다운로드 실패: {e}")
-        st.error("Google 드라이브 링크가 올바른지, '링크가 있는 모든 사용자'로 공유되었는지 확인하세요.")
-        return None
 
 @st.cache_resource
 def load_data(json_path):
@@ -98,12 +81,23 @@ def normalize_text(text):
     text = re.sub(r'[\s\W_]+', '', text)
     return text
 
+@st.cache_resource
+def download_pdf_from_gdrive(url, output_path):
+    """Google 드라이브에서 PDF를 다운로드합니다."""
+    if os.path.exists(output_path):
+        print(f"'{output_path}' 파일이 이미 존재합니다. 다운로드를 건너뜁니다.")
+        return output_path
+    try:
+        print(f"'{output_path}' 다운로드 중...")
+        gdown.download(url, output_path, quiet=False, fuzzy=True)
+        print("다운로드 완료.")
+        return output_path
+    except Exception as e:
+        st.error(f"PDF 파일 다운로드 실패: {e}")
+        st.error("Google 드라이브 링크가 올바른지, '링크가 있는 모든 사용자'로 공유되었는지 확인하세요.")
+        return None
+
 # --- 1. 데이터 로드 ---
-# [V13] 앱 시작 시 GDrive에서 PDF 다운로드
-if GOOGLE_DRIVE_URL == "여기에_구글_드라이브_공유_링크_붙여넣기":
-    st.error("'app.py' 파일 21번째 줄의 GOOGLE_DRIVE_URL 변수에 Google 드라이브 링크를 입력하세요.")
-    st.stop()
-    
 pdf_path = download_pdf_from_gdrive(GOOGLE_DRIVE_URL, PDF_FILE_NAME)
 if not pdf_path:
     st.stop()
@@ -141,8 +135,6 @@ def go_to_main():
     st.rerun()
 
 # --- 4. 메인 화면 (3가지 모드) ---
-
-# [V13] UI 레이아웃 1: 검색창 (항상 최상단)
 query = st.text_input(
     "🔍 검색어를 입력하세요 (예: '용접', '추락', '고소 작업대')", 
     key="search_query"
@@ -213,7 +205,6 @@ elif st.session_state.selected_item is not None:
     
     for page_to_show in range(page_start, page_end + 1):
         st.subheader(f"📄 PDF 원본 보기 (Page {page_to_show})")
-        # [V13] 다운로드된 PDF 경로(pdf_path) 사용
         img_bytes = render_pdf_page(pdf_path, page_to_show)
         if img_bytes:
             st.image(img_bytes, use_column_width=True)
@@ -223,14 +214,28 @@ else:
     # --- 모드 3: 메인 화면 (목차 + 다운로드) ---
     st.subheader("📑 기준집 목차 (카테고리)")
     
+    # [V15] 카테고리 분류 함수 (K -> 차량계하역운반)
+    def get_category_name(doc_id):
+        if not isinstance(doc_id, str) or '-' not in doc_id:
+            return "기타"
+        
+        category_prefix = doc_id.split('-')[0]
+        
+        # [V15] 사용자 요청: 'K' (K-05...) 및 '양중' 카테고리를 '차량계하역운반'에 통합
+        if category_prefix == "K" or category_prefix == "양중":
+            return "차량계하역운반"
+        
+        return category_prefix
+
     try:
-        df['category'] = df['id'].apply(lambda x: x.split('-')[0])
+        df['category'] = df['id'].apply(get_category_name)
         categories = sorted(df['category'].unique())
         
         for category in categories:
             with st.expander(f"📁 **{category}**"):
                 category_items = df[df['category'] == category]
-                for _, row in category_items.iterrows():
+                # ID 순서대로 정렬
+                for _, row in category_items.sort_values(by='id').iterrows():
                     st.button(
                         f"{row['full_title']}", 
                         key=f"toc_{row['id']}",
@@ -243,9 +248,7 @@ else:
 
     st.divider()
 
-    # [V13] PDF 다운로드 버튼
     try:
-        # 다운로드된 PDF 경로(pdf_path) 사용
         with open(pdf_path, "rb") as f:
             st.download_button(
                 label="기준집 PDF 전체 다운로드",
@@ -256,3 +259,8 @@ else:
             )
     except FileNotFoundError:
         st.error(f"'{pdf_path}' 파일을 찾을 수 없습니다. 앱을 새로고침하세요.")
+
+
+# --- 5. [V15] 이메일 주소 ---
+st.divider()
+st.caption("📄 기준집 관련 문의사항: king990630@gmail.com") # (이메일 주소 수정 필요)
