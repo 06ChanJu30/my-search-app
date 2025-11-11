@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 import numpy as np
 import gdown 
 
-# [V15] AI 모듈 임포트
+# [V16] AI 모듈 임포트
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -16,7 +16,6 @@ except ImportError:
     st.stop()
 
 # --- 설정 ---
-# [V15] 새 PDF 링크가 적용되었는지 확인 (지난번 V25 data_builder에 맞는 링크여야 함)
 GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing" # (지난번 새 PDF 링크)
 PDF_FILE_NAME = "standard.pdf"
 DATA_JSON_NAME = "standards_data.json"
@@ -207,24 +206,20 @@ elif st.session_state.selected_item is not None:
         st.subheader(f"📄 PDF 원본 보기 (Page {page_to_show})")
         img_bytes = render_pdf_page(pdf_path, page_to_show)
         if img_bytes:
-            st.image(img_bytes, use_column_width=True)
+            # [V16 수정] use_column_width=True -> 'auto'로 변경하여 확대/축소 기능 활성화
+            st.image(img_bytes, use_column_width='auto') 
         st.divider()
 
 else:
     # --- 모드 3: 메인 화면 (목차 + 다운로드) ---
     st.subheader("📑 기준집 목차 (카테고리)")
     
-    # [V15] 카테고리 분류 함수 (K -> 차량계하역운반)
     def get_category_name(doc_id):
         if not isinstance(doc_id, str) or '-' not in doc_id:
             return "기타"
-        
         category_prefix = doc_id.split('-')[0]
-        
-        # [V15] 사용자 요청: 'K' (K-05...) 및 '양중' 카테고리를 '차량계하역운반'에 통합
         if category_prefix == "K" or category_prefix == "양중":
             return "차량계하역운반"
-        
         return category_prefix
 
     try:
@@ -234,7 +229,6 @@ else:
         for category in categories:
             with st.expander(f"📁 **{category}**"):
                 category_items = df[df['category'] == category]
-                # ID 순서대로 정렬
                 for _, row in category_items.sort_values(by='id').iterrows():
                     st.button(
                         f"{row['full_title']}", 
@@ -261,6 +255,6 @@ else:
         st.error(f"'{pdf_path}' 파일을 찾을 수 없습니다. 앱을 새로고침하세요.")
 
 
-# --- 5. [V15] 이메일 주소 ---
+# --- 5. [V16] 이메일 주소 ---
 st.divider()
 st.caption("📄 기준집 관련 문의사항: king990630@gmail.com") # (이메일 주소 수정 필요)
