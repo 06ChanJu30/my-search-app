@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 import numpy as np
 import gdown 
 
-# [V18] AI 모듈 임포트
+# [V19] AI 모듈 임포트
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -206,8 +206,9 @@ elif st.session_state.selected_item is not None:
         st.subheader(f"📄 PDF 원본 보기 (Page {page_to_show})")
         img_bytes = render_pdf_page(pdf_path, page_to_show)
         if img_bytes:
-            # [V18 수정] use_column_width='auto'로 변경하여 모바일 줌 활성화
-            st.image(img_bytes, use_column_width='auto') 
+            # [V19 수정] use_column_width=False로 변경
+            # 이미지가 화면보다 클 수 있지만, 브라우저의 기본 '두 손가락 줌'이 가능해집니다.
+            st.image(img_bytes, use_column_width=False) 
         st.divider()
 
 else:
@@ -255,6 +256,6 @@ else:
         st.error(f"'{pdf_path}' 파일을 찾을 수 없습니다. 앱을 새로고침하세요.")
 
 
-# --- 5. [V18] 이메일 주소 ---
+# --- 5. [V19] 이메일 주소 ---
 st.divider()
 st.caption("📄 기준집 관련 문의사항: king990630@gmail.com") # (이메일 주소 수정 필요)
