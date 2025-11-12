@@ -16,7 +16,7 @@ except ImportError:
     st.stop()
 
 # --- 설정 ---
-GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1HSsJwmN2TRQOGXSL2Jqr2suRyeqkfT1w/view?usp=sharing" # (지난번 새 PDF 링크)
+GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing" # (지난번 새 PDF 링크)
 PDF_FILE_NAME = "standard.pdf"
 DATA_JSON_NAME = "standards_data.json"
 INDEX_FILE_NAME = "toc.index" 
