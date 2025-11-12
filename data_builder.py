@@ -124,7 +124,7 @@ def create_database(data_list, pdf_path):
         print(f"!!! AI 인덱스 생성 실패: {e}")
 
 if __name__ == "__main__":
-    if GOOGLE_DRIVE_URL == "여기에_새_PDF의_구글_드라이브_공유_링크_붙여넣기":
+    if GOOGLE_DRIVE_URL == "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing":
         print("="*50)
         print("!!! 오류: 'data_builder.py' 파일 20번째 줄의")
         print("GOOGLE_DRIVE_URL 변수에 *새* Google 드라이브 링크를 입력하세요.")
