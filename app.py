@@ -6,8 +6,10 @@ import re
 import fitz  # PyMuPDF
 import numpy as np
 import gdown 
+from datetime import datetime # [V21] 시간 기록용
+from collections import Counter # [V21] 통계 계산용
 
-# [V17] AI 모듈 임포트
+# [V21] AI 모듈 임포트
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -16,16 +18,49 @@ except ImportError:
     st.stop()
 
 # --- 설정 ---
-GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing" # (지난번 새 PDF 링크)
+GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing"
 PDF_FILE_NAME = "standard.pdf"
 DATA_JSON_NAME = "standards_data.json"
 INDEX_FILE_NAME = "toc.index" 
 SYNONYM_FILE_NAME = "synonyms.json"
+LOG_FILE_NAME = "search_log.csv" # [V21] 검색 기록 저장 파일
 # ---
+
+# [V21] 검색어 로깅 함수
+def log_search_query(query):
+    """검색어를 CSV 파일에 저장합니다."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 파일이 없으면 헤더 생성
+    if not os.path.exists(LOG_FILE_NAME):
+        with open(LOG_FILE_NAME, "w", encoding="utf-8") as f:
+            f.write("timestamp,query\n")
+            
+    # 검색어 저장 (콤마 제거 등 전처리)
+    clean_query = query.replace(",", " ") 
+    with open(LOG_FILE_NAME, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp},{clean_query}\n")
+
+# [V21] 통계 데이터 로드 함수
+def load_search_stats():
+    """저장된 검색 기록을 불러와 통계를 냅니다."""
+    if not os.path.exists(LOG_FILE_NAME):
+        return pd.DataFrame(columns=["검색어", "횟수"])
+    
+    try:
+        df_log = pd.read_csv(LOG_FILE_NAME)
+        if df_log.empty:
+            return pd.DataFrame(columns=["검색어", "횟수"])
+            
+        # 검색어 빈도 계산
+        counts = df_log['query'].value_counts().reset_index()
+        counts.columns = ['검색어', '횟수']
+        return counts
+    except Exception:
+        return pd.DataFrame(columns=["검색어", "횟수"])
 
 @st.cache_resource
 def load_data(json_path):
-    """JSON 데이터를 로드합니다."""
     if not os.path.exists(json_path):
         return None
     with open(json_path, 'r', encoding='utf-8') as f:
@@ -37,7 +72,6 @@ def load_data(json_path):
 
 @st.cache_resource
 def load_search_engine(index_path):
-    """AI 모델과 FAISS 인덱스를 로드합니다."""
     if not os.path.exists(index_path):
         return None, None
     try:
@@ -50,7 +84,6 @@ def load_search_engine(index_path):
 
 @st.cache_resource
 def load_synonyms(synonym_path):
-    """유의어 사전을 로드합니다."""
     if not os.path.exists(synonym_path):
         return {}
     try:
@@ -63,7 +96,6 @@ def load_synonyms(synonym_path):
 
 @st.cache_data
 def render_pdf_page(pdf_path, page_num, dpi=150):
-    """PDF의 특정 페이지를 이미지로 렌더링합니다."""
     try:
         doc = fitz.open(pdf_path)
         page = doc.load_page(page_num - 1)
@@ -82,34 +114,25 @@ def normalize_text(text):
 
 @st.cache_resource
 def download_pdf_from_gdrive(url, output_path):
-    """Google 드라이브에서 PDF를 다운로드합니다."""
     if os.path.exists(output_path):
-        print(f"'{output_path}' 파일이 이미 존재합니다. 다운로드를 건너뜁니다.")
         return output_path
     try:
         print(f"'{output_path}' 다운로드 중...")
         gdown.download(url, output_path, quiet=False, fuzzy=True)
-        print("다운로드 완료.")
         return output_path
     except Exception as e:
         st.error(f"PDF 파일 다운로드 실패: {e}")
-        st.error("Google 드라이브 링크가 올바른지, '링크가 있는 모든 사용자'로 공유되었는지 확인하세요.")
         return None
 
 # --- 1. 데이터 로드 ---
 pdf_path = download_pdf_from_gdrive(GOOGLE_DRIVE_URL, PDF_FILE_NAME)
-if not pdf_path:
-    st.stop()
+if not pdf_path: st.stop()
 
 df = load_data(DATA_JSON_NAME)
-if df is None:
-    st.error(f"'{DATA_JSON_NAME}' 파일을 찾을 수 없습니다. `data_builder.py`를 실행했는지, GitHub에 업로드했는지 확인하세요.")
-    st.stop()
+if df is None: st.stop()
 
 model, index = load_search_engine(INDEX_FILE_NAME)
-if model is None or index is None:
-    st.error(f"'{INDEX_FILE_NAME}' 파일을 찾을 수 없습니다. GitHub에 업로드했는지 확인하세요.")
-    st.stop()
+if model is None or index is None: st.stop()
 
 synonyms = load_synonyms(SYNONYM_FILE_NAME)
 
@@ -123,6 +146,12 @@ if 'selected_item' not in st.session_state:
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
 
+# [V21] 검색 로깅을 위해 수정된 함수
+def on_search_click():
+    # 검색어가 있을 때만 로깅
+    if st.session_state.search_query.strip():
+        log_search_query(st.session_state.search_query)
+
 def show_full_text(result_item):
     st.session_state.selected_item = result_item
     st.session_state.search_query = ""
@@ -133,14 +162,14 @@ def go_to_main():
     st.session_state.search_query = ""
     st.rerun()
 
-# --- 4. 메인 화면 (3가지 모드) ---
+# --- 4. 메인 화면 ---
 query = st.text_input(
     "🔍 검색어를 입력하세요 (예: '용접', '추락', '고소 작업대')", 
-    key="search_query"
+    key="search_query",
+    on_change=on_search_click # [V21] 엔터 치면 검색어 저장
 )
 
 if query:
-    # --- 모드 1: 검색 결과 표시 ---
     st.session_state.selected_item = None 
     final_indices = []
     
@@ -191,7 +220,6 @@ if query:
             )
 
 elif st.session_state.selected_item is not None:
-    # --- 모드 2: 항목 본문(PDF) 표시 ---
     item = st.session_state.selected_item
     
     st.button("← 목차로 돌아가기", on_click=go_to_main)
@@ -206,13 +234,10 @@ elif st.session_state.selected_item is not None:
         st.subheader(f"📄 PDF 원본 보기 (Page {page_to_show})")
         img_bytes = render_pdf_page(pdf_path, page_to_show)
         if img_bytes:
-            # [V17 수정] 'auto' -> True ('always'와 동일)로 변경
-            # 이렇게 하면 🔎 아이콘은 사라지지만, 브라우저 줌(Ctrl+휠)이 정상 작동합니다.
-            st.image(img_bytes, use_column_width=True) 
+            st.image(img_bytes, use_column_width=False) 
         st.divider()
 
 else:
-    # --- 모드 3: 메인 화면 (목차 + 다운로드) ---
     st.subheader("📑 기준집 목차 (카테고리)")
     
     def get_category_name(doc_id):
@@ -256,6 +281,20 @@ else:
         st.error(f"'{pdf_path}' 파일을 찾을 수 없습니다. 앱을 새로고침하세요.")
 
 
-# --- 5. [V17] 이메일 주소 ---
+# --- [V21] 이메일 주소 및 통계 (사이드바) ---
 st.divider()
-st.caption("📄 기준집 관련 문의사항: king990630@gmail.com") # (이메일 주소 수정 필요)
+st.caption("📄 기준집 관련 문의사항: 중원엔지니어링 백찬주 대리 king990630@email.com") # 이메일 변경 필요
+
+# [V21] 사이드바에 검색 통계 추가 (관리자용)
+with st.sidebar.expander("📊 검색 통계 보기"):
+    stats_df = load_search_stats()
+    if not stats_df.empty:
+        st.write("🔥 **많이 검색된 키워드 TOP 5**")
+        # 상위 5개만 차트로 표시
+        top_5 = stats_df.head(5).set_index('검색어')
+        st.bar_chart(top_5)
+        
+        st.write("📋 **전체 검색 기록**")
+        st.dataframe(stats_df, hide_index=True)
+    else:
+        st.info("아직 검색 기록이 없습니다.")
