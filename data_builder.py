@@ -19,14 +19,14 @@ except ImportError:
     exit()
 
 # --- 설정 ---
-# [V25] 새 PDF의 Google 드라이브 링크를 여기에 붙여넣으세요!
+# [수정됨] 사용자가 제공한 새 Google 드라이브 링크 반영
 GOOGLE_DRIVE_URL = "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing"
 PDF_FILE_NAME = "standard.pdf" 
 OUTPUT_JSON_NAME = "standards_data.json"
 OUTPUT_INDEX_NAME = "toc.index"
 # ---
 
-# [V25 수정] 2025.11.06 (Rev.01) 새 PDF 목차 기준으로 전면 수정
+# [V25] 2025.11.06 (Rev.01) 새 PDF 목차 기준 (페이지 밀림 반영)
 MANUAL_TOC_DATA = [
     {"id": "가설-01", "title": "가설사무실 안전기준", "page_start": 7, "page_end": 8}, # 5->7
     {"id": "가설-02", "title": "컨테이너 반입 프로세스", "page_start": 9, "page_end": 9}, # 7->9
@@ -64,7 +64,6 @@ MANUAL_TOC_DATA = [
     {"id": "양중-02", "title": "와이어, 웹벨트, 셔클 등 관리기준", "page_start": 88, "page_end": 92}, # 86->88
     {"id": "양중-03", "title": "체인블럭/레버블럭", "page_start": 93, "page_end": 95}, # 91->93
     {"id": "양중-04", "title": "양중함 및 톤백의 안전", "page_start": 96, "page_end": 99}, # 94->96
-    # [V25] 새 목차(6p)에 누락된 항목 2개 추가 (본문 101p 참조)
     {"id": "K-05-①", "title": "고소작업대", "page_start": 101, "page_end": 101}, 
     {"id": "K-05-②", "title": "신호수/유도원", "page_start": 101, "page_end": 101},
     {"id": "MSDS-01", "title": "물질안전보건 일반", "page_start": 102, "page_end": 105} # 100->102
@@ -91,7 +90,7 @@ def create_database(data_list, pdf_path):
     for item in data_list:
         page_content = ""
         try:
-            # [V25] 새 PDF의 목차 페이지(3~6p)는 본문 검색에서 제외
+            # 목차 페이지(3~6p) 제외하고 본문 추출
             for page_num in range(item["page_start"], item["page_end"] + 1):
                 if page_num > 6: 
                     page = doc.load_page(page_num - 1)
@@ -124,13 +123,7 @@ def create_database(data_list, pdf_path):
         print(f"!!! AI 인덱스 생성 실패: {e}")
 
 if __name__ == "__main__":
-    if GOOGLE_DRIVE_URL == "https://drive.google.com/file/d/1wFU036uGQvzufgiFT7kq1EKMfVEp7IXJ/view?usp=sharing":
-        print("="*50)
-        print("!!! 오류: 'data_builder.py' 파일 20번째 줄의")
-        print("GOOGLE_DRIVE_URL 변수에 *새* Google 드라이브 링크를 입력하세요.")
-        print("="*50)
-    else:
-        print(f"Google 드라이브에서 '{PDF_FILE_NAME}' 다운로드 중...")
-        gdown.download(GOOGLE_DRIVE_URL, PDF_FILE_NAME, quiet=False, fuzzy=True)
-        print("다운로드 완료. 데이터베이스 생성을 시작합니다.")
-        create_database(MANUAL_TOC_DATA, PDF_FILE_NAME)
+    print(f"Google 드라이브에서 '{PDF_FILE_NAME}' 다운로드 중...")
+    gdown.download(GOOGLE_DRIVE_URL, PDF_FILE_NAME, quiet=False, fuzzy=True)
+    print("다운로드 완료. 데이터베이스 생성을 시작합니다.")
+    create_database(MANUAL_TOC_DATA, PDF_FILE_NAME)
