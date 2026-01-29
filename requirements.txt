@@ -1,7 +1,9 @@
 streamlit
-PyMuPDF
+pandas
+openpyxl
+pymupdf
 sentence-transformers
 faiss-cpu
-pandas
-numpy
 gdown
+numpy
+pillow
