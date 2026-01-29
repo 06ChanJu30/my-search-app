@@ -2,7 +2,7 @@ import streamlit as st
 import os
 
 # --- [모바일 배려] 상단 홈 버튼 ---
-st.page_link("Home.py", label="메인으로 돌아가기", icon="🏠")
+st.page_link("app.py", label="메인으로 돌아가기", icon="🏠")
 st.markdown("---")
 
 # 1. 경로 설정 (최상위 manual_data 폴더 찾기)
@@ -84,4 +84,5 @@ if topics:
                 else:
                     st.warning("하위 폴더(소분류)가 없습니다. 폴더 구조를 확인해주세요.")
 else:
+
     st.info("탭(중분류) 폴더가 없습니다.")
