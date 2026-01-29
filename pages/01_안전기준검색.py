@@ -13,7 +13,7 @@ from collections import Counter
 st.set_page_config(page_title="안전보건 기준 검색", layout="centered")
 
 # [수정 2] 홈 버튼 추가 (설정 바로 아래에 위치)
-st.page_link("Home.py", label="메인으로 돌아가기", icon="🏠")
+st.page_link("app.py", label="메인으로 돌아가기", icon="🏠")
 st.markdown("---")
 
 # [수정 3] 경로 설정 (pages 폴더가 아닌, 최상위 폴더를 기준으로 잡기 위함)
@@ -322,3 +322,4 @@ with st.sidebar.expander("📊 검색 통계 보기 (관리자용)"):
         st.dataframe(stats_df, hide_index=True)
     else:
         st.info("아직 검색 기록이 없습니다.")
+
