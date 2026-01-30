@@ -310,7 +310,7 @@ else:
 
 # --- 하단 정보 및 통계 ---
 st.divider()
-st.caption("📄 기준집 관련 문의사항: 안전팀 (02-0000-0000)")
+st.caption("📄 기준집 관련 문의사항: 안전팀 백찬주 대리 (010-2528-5706)")
 
 with st.sidebar.expander("📊 검색 통계 보기 (관리자용)"):
     stats_df = load_search_stats()
@@ -322,4 +322,5 @@ with st.sidebar.expander("📊 검색 통계 보기 (관리자용)"):
         st.dataframe(stats_df, hide_index=True)
     else:
         st.info("아직 검색 기록이 없습니다.")
+
 
