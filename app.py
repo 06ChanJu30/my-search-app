@@ -41,7 +41,7 @@ st.markdown("---")
 # 4. 메인 네비게이션 버튼
 st.info("👇 원하시는 작업을 선택해주세요.")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     st.header("🔍 안전 기준 검색")
@@ -52,3 +52,10 @@ with col2:
     st.header("📖 작업 절차서 열람")
     st.write("표준 작업안 및 장비 사용 매뉴얼 확인")
     st.page_link("pages/02_작업절차서.py", label="작업 절차서 바로가기", icon="📖", use_container_width=True)
+
+# [추가] 세 번째 버튼
+with col3:
+    st.header("📚 안전 그라운드 룰")
+    st.write("현장 필수 준수 Safety Ground Rule")
+    # 파일 이름을 다르게 하셨다면 아래 괄호 안의 이름을 똑같이 맞춰주세요!
+    st.page_link("pages/03_안전그라운드룰.py", label="그라운드 룰 확인하기", icon="📚", use_container_width=True)
