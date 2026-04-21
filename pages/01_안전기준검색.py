@@ -150,9 +150,10 @@ def on_search_click():
     if st.session_state.search_query.strip():
         log_search_query(st.session_state.search_query)
 
+# 콜백 함수들
 def show_full_text(result_item):
     st.session_state.selected_item = result_item
-    st.session_state.search_query = ""
+    st.session_state.search_query = "" # 콜백으로 실행되므로 이제 에러 발생 안 함!
 
 def go_to_main():
     st.session_state.selected_item = None
@@ -193,9 +194,13 @@ if query:
     for i, row in results_df.iterrows():
         with st.container(border=True):
             st.markdown(f"### {row['full_title']}")
-            if st.button("상세 보기", key=f"btn_{i}"):
-                show_full_text(row)
-                st.rerun()
+            # [수정] 콜백 방식(on_click)으로 변경
+            st.button(
+                "상세 보기", 
+                key=f"btn_{i}",
+                on_click=show_full_text,
+                args=(row,)
+            )
 
 elif st.session_state.selected_item is not None:
     item = st.session_state.selected_item
@@ -220,9 +225,14 @@ else:
         with st.expander(f"📁 {cat}"):
             cat_items = df[df['category'] == cat]
             for _, row in cat_items.iterrows():
-                if st.button(row['full_title'], key=f"list_{row['id']}", use_container_width=True):
-                    show_full_text(row)
-                    st.rerun()
+                # [수정] 콜백 방식(on_click)으로 변경
+                st.button(
+                    row['full_title'], 
+                    key=f"list_{row['id']}", 
+                    on_click=show_full_text,
+                    args=(row,),
+                    use_container_width=True
+                )
 
 # 하단 정보
 st.divider()
