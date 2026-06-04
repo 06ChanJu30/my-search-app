@@ -15,7 +15,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_FILE_PATH = os.path.join(current_dir, "ops_database.json")
 PDF_FILE_PATH = os.path.join(current_dir, "안전보건 작업지침 OPS.pdf") # 원본 PDF 파일
 
-# 2. 데이터 불러오기
+# 2. 데이터 불러오기 및 중복 제거 (💡 핵심 수정 부분)
 @st.cache_data
 def load_ops_data():
     if not os.path.exists(JSON_FILE_PATH):
@@ -23,7 +23,14 @@ def load_ops_data():
     try:
         with open(JSON_FILE_PATH, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return pd.DataFrame(data)
+        
+        df = pd.DataFrame(data)
+        
+        # 💡 중복 제거 로직: 제목(title)과 내용(answer)이 완전히 똑같은 경우 첫 번째 1개만 남깁니다.
+        if not df.empty:
+            df = df.drop_duplicates(subset=['title', 'answer'], keep='first')
+            
+        return df
     except Exception as e:
         return pd.DataFrame()
 
