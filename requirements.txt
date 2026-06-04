@@ -1,9 +1,1 @@
-streamlit
-pandas
-openpyxl
-pymupdf
-sentence-transformers
-faiss-cpu
-gdown
-numpy
-pillow
+PyMuPDF
