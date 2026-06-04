@@ -15,7 +15,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_FILE_PATH = os.path.join(current_dir, "ops_database.json")
 PDF_FILE_PATH = os.path.join(current_dir, "안전보건 작업지침 OPS.pdf") # 원본 PDF 파일
 
-# 2. 데이터 불러오기 및 🌟개정이력 숨기기 + 중복 제거🌟
+# 2. 데이터 불러오기 및 🌟가짜 데이터 완벽 제거🌟
 @st.cache_data
 def load_ops_data():
     if not os.path.exists(JSON_FILE_PATH):
@@ -27,11 +27,13 @@ def load_ops_data():
         df = pd.DataFrame(data)
         
         if not df.empty:
-            # 💡 핵심 수정: '개정이력'이나 '목차'가 들어간 불필요한 항목은 화면에 안 띄우고 바로 삭제!
-            df = df[~df['title'].str.contains('개정이력|목차|개정이력', case=False, na=False)]
-            df = df[~df['category'].str.contains('개정이력|목차', case=False, na=False)]
+            # 💡 핵심 수정 1: 문서번호(IZ12B-)가 나오기 전 쓸어담은 가짜 데이터('공통 지침')를 통째로 삭제!
+            df = df[df['category'] != '공통 지침']
             
-            # 💡 초강력 중복제거: 특수문자, 기호, 띄어쓰기 전부 무시
+            # (혹시 몰라 남겨두는 2차 방어선)
+            df = df[~df['title'].str.contains('개정이력|목차', case=False, na=False)]
+            
+            # 💡 핵심 수정 2: 띄어쓰기, 특수문자 무시한 초강력 중복 제거
             df['clean_title'] = df['title'].str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True)
             df = df.drop_duplicates(subset=['clean_title'], keep='first')
             
