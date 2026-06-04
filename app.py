@@ -15,7 +15,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 JSON_FILE_PATH = os.path.join(current_dir, "ops_database.json")
 PDF_FILE_PATH = os.path.join(current_dir, "안전보건 작업지침 OPS.pdf") # 원본 PDF 파일
 
-# 2. 데이터 불러오기 및 🌟강력한 중복 제거🌟
+# 2. 데이터 불러오기 및 🌟개정이력 숨기기 + 중복 제거🌟
 @st.cache_data
 def load_ops_data():
     if not os.path.exists(JSON_FILE_PATH):
@@ -27,12 +27,13 @@ def load_ops_data():
         df = pd.DataFrame(data)
         
         if not df.empty:
-            # 💡 핵심 수정: 분류와 제목의 띄어쓰기를 모두 없앤 비교용 열을 만들어서 완벽하게 중복을 걸러냅니다.
-            df['clean_category'] = df['category'].str.replace(' ', '')
-            df['clean_title'] = df['title'].str.replace(' ', '')
+            # 💡 핵심 수정: '개정이력'이나 '목차'가 들어간 불필요한 항목은 화면에 안 띄우고 바로 삭제!
+            df = df[~df['title'].str.contains('개정이력|목차|개정이력', case=False, na=False)]
+            df = df[~df['category'].str.contains('개정이력|목차', case=False, na=False)]
             
-            # 분류와 제목이 같으면 무조건 첫 번째 1개만 남기고 다 지움!
-            df = df.drop_duplicates(subset=['clean_category', 'clean_title'], keep='first')
+            # 💡 초강력 중복제거: 특수문자, 기호, 띄어쓰기 전부 무시
+            df['clean_title'] = df['title'].str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True)
+            df = df.drop_duplicates(subset=['clean_title'], keep='first')
             
         return df
     except Exception as e:
@@ -40,7 +41,7 @@ def load_ops_data():
 
 df = load_ops_data()
 
-# 3. PDF 파일 불러오기 (메모리에 캐싱하여 속도 극대화)
+# 3. PDF 파일 불러오기
 @st.cache_resource
 def load_pdf():
     if os.path.exists(PDF_FILE_PATH):
@@ -56,11 +57,12 @@ if df.empty:
 # 4. 검색창
 query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인 신호수, 화기작업)")
 
-# 5. 검색 및 그림 표시 로직
+# 5. 엄격한 검색(AND) 및 그림 표시 로직
 if query:
     keywords = query.strip().split()
     mask = pd.Series([True] * len(df), index=df.index)
     
+    # 입력한 단어가 "모두" 포함된 지침만 정확하게 찾습니다.
     for kw in keywords:
         kw_mask = df['question'].str.contains(kw, case=False, na=False) | \
                   df['answer'].str.contains(kw, case=False, na=False)
@@ -72,7 +74,7 @@ if query:
     st.divider()
     
     if len(result_df) == 0:
-        st.warning("정확히 일치하는 지침이 없습니다. 검색어를 줄여서 다시 시도해보세요.")
+        st.warning("정확히 일치하는 지침이 없습니다. 검색어를 줄이거나 단어를 바꿔서 다시 시도해보세요.")
     else:
         # 결과 출력 (아코디언 형태)
         for i, row in result_df.iterrows():
@@ -85,17 +87,14 @@ if query:
                 if pdf_doc is not None and match:
                     page_idx = int(match.group(1))
                     if 0 <= page_idx < len(pdf_doc):
-                        # PDF의 해당 페이지를 고화질 이미지(그림)로 변환
                         page = pdf_doc[page_idx]
                         pix = page.get_pixmap(dpi=150) # 화질 설정
                         img_data = pix.tobytes("png")
                         
-                        # 화면에 원본 그림 띄우기
                         st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
                     else:
                         st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
                 else:
-                    # PDF가 없거나 페이지 정보가 없을 때만 텍스트 표시
                     st.warning("원본 PDF 파일이 없어 그림 대신 텍스트로 표시합니다.")
                     st.info(f"{row.get('answer', '내용없음')}")
 
