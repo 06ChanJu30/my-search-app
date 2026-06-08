@@ -1,3 +1,5 @@
 PyMuPDF
 pandas
 gdown
+sentence-transformers
+faiss-cpu
