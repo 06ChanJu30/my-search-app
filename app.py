@@ -44,6 +44,12 @@ def load_ops_data():
         if not df.empty:
             df = df[~df['title'].str.contains('개정이력|목차', case=False, na=False)]
             
+            # 없는 컬럼 강제 생성 방어 (에러 방지용)
+            if 'search_normalized' not in df.columns:
+                df['search_normalized'] = ""
+            if 'title' not in df.columns:
+                df['title'] = "제목없음"
+                
             def assign_major_category(row):
                 text = str(row.get('title', '')) + str(row.get('category', '')) + str(row.get('id', ''))
                 if 'IZ12B-1' in text: return '1. 공통'
@@ -102,8 +108,7 @@ def display_manual_content(row):
         else:
             st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
     else:
-        st.warning("원본 PDF 파일이 없어 그림 대신 텍스트로 표시합니다.")
-        st.info(f"{row.get('answer', '내용없음')}")
+        st.warning("원본 PDF 파일이 연결되어 있지 않습니다.")
 
 # 3. 검색창
 query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)")
@@ -114,13 +119,11 @@ if query:
     mask = pd.Series([True] * len(df), index=df.index)
     
     try:
-        # [1] 교집합(AND) 검색
+        # [1] 교집합(AND) 검색 (question, answer 삭제하고 title과 search_normalized에서만 검색)
         for kw in keywords:
             kw_lower = kw.lower()
             kw_mask = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                      df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                      df['question'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                      df['answer'].str.lower().str.contains(kw_lower, regex=False, na=False)
+                      df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
             mask = mask & kw_mask
             
         result_df = df[mask]
@@ -139,11 +142,11 @@ if query:
             df['match_score'] = 0 
             for kw in keywords:
                 kw_lower = kw.lower()
-                content_match = df['question'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                                df['answer'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                                df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
+                # search_normalized에 있으면 1점
+                content_match = df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[content_match, 'match_score'] += 1
                 
+                # title에 있으면 2점
                 title_match = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[title_match, 'match_score'] += 2
             
@@ -159,15 +162,14 @@ if query:
                         display_manual_content(row)
 
     except Exception as e:
-        st.error("앗! 검색 중 문제가 발생했습니다.")
+        st.error(f"앗! 검색 중 문제가 발생했습니다: {e}")
         
 else:
-    # 🌟 [개선됨] 깔끔한 드롭다운(선택 상자) 목차 UI 🌟
+    # 🌟 깔끔한 드롭다운(선택 상자) 목차 UI 🌟
     st.subheader("📑 분야별 작업지침 목차")
     
     categories = sorted(list(df['major_category'].unique()))
     
-    # 기본값으로 '안내 문구'를 넣어서 처음엔 아무것도 안 펼쳐지게 막아둡니다.
     selected_toc = st.selectbox("📂 조회할 카테고리를 선택하세요", ["(목차를 선택해주세요)"] + categories)
     
     if selected_toc != "(목차를 선택해주세요)":
