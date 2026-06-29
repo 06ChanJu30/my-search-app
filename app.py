@@ -114,7 +114,7 @@ if query:
     mask = pd.Series([True] * len(df), index=df.index)
     
     try:
-        # [1] 교집합(AND) 검색: 모든 단어가 포함된 정확한 결과
+        # [1] 교집합(AND) 검색
         for kw in keywords:
             kw_lower = kw.lower()
             kw_mask = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
@@ -125,7 +125,6 @@ if query:
             
         result_df = df[mask]
         
-        # 정확한 검색 결과 출력
         if len(result_df) > 0:
             st.subheader(f"총 {len(result_df)}건의 검색 결과가 있습니다.")
             st.divider()
@@ -135,32 +134,22 @@ if query:
         else:
             st.warning("정확히 일치하는 지침이 없습니다.")
         
-        # 🌟 [2] 유사 검색(관련 검색어) 고도화 로직 🌟
-        # 정확한 결과가 없거나, 너무 적을 때(3개 이하) 똑똑한 추천 실행
+        # [2] 유사 검색(관련 검색어) 로직
         if len(result_df) <= 3:
-            # 점수 매기기 위한 열 추가
             df['match_score'] = 0 
-            
             for kw in keywords:
                 kw_lower = kw.lower()
-                # 내용에 있으면 +1점
                 content_match = df['question'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
                                 df['answer'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
                                 df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[content_match, 'match_score'] += 1
                 
-                # 제목에 있으면 +2점 (가중치 부여)
                 title_match = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[title_match, 'match_score'] += 2
             
-            # 정확히 일치했던 결과는 추천에서 제외
             recommend_df = df[~df.index.isin(result_df.index)]
-            
-            # 단어가 1개일 때는 점수 1점 이상, 2개 이상일 때는 점수 2점 이상인 것만 필터링 (엄격한 기준)
             min_score_required = 1 if len(keywords) == 1 else 2
             recommend_df = recommend_df[recommend_df['match_score'] >= min_score_required]
-            
-            # 점수가 높은 순으로 정렬하여 상위 5개만 추출
             recommend_df = recommend_df.sort_values(by='match_score', ascending=False).head(5)
             
             if len(recommend_df) > 0:
@@ -173,18 +162,19 @@ if query:
         st.error("앗! 검색 중 문제가 발생했습니다.")
         
 else:
-    # --- [카테고리 목차표 화면] ---
+    # 🌟 [개선됨] 깔끔한 드롭다운(선택 상자) 목차 UI 🌟
     st.subheader("📑 분야별 작업지침 목차")
     
     categories = sorted(list(df['major_category'].unique()))
-    tabs = st.tabs(categories)
     
-    for i, cat in enumerate(categories):
-        with tabs[i]:
-            cat_df = df[df['major_category'] == cat]
-            for _, row in cat_df.iterrows():
-                with st.expander(f"📖 {row.get('title', '제목없음')}"):
-                    display_manual_content(row)
+    # 기본값으로 '안내 문구'를 넣어서 처음엔 아무것도 안 펼쳐지게 막아둡니다.
+    selected_toc = st.selectbox("📂 조회할 카테고리를 선택하세요", ["(목차를 선택해주세요)"] + categories)
+    
+    if selected_toc != "(목차를 선택해주세요)":
+        cat_df = df[df['major_category'] == selected_toc]
+        for _, row in cat_df.iterrows():
+            with st.expander(f"📖 {row.get('title', '제목없음')}"):
+                display_manual_content(row)
 
 # 6. 하단 문의처
 st.divider()
