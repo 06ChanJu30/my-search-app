@@ -91,50 +91,63 @@ if df.empty:
     st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
     st.stop()
 
-# 🌟 핵심 수정: 1장이 아니라 전체 범위(page_start ~ page_end)를 모두 출력하도록 변경!
+# 🌟 그림 출력 및 하단 "닫기" 버튼 기능 추가
 def display_manual_content(row):
+    content_displayed = False
+    
     if pdf_doc is None:
         st.warning("원본 PDF 파일이 연결되어 있지 않습니다.")
         st.info(f"{row.get('answer', '내용없음')}")
-        return
+        content_displayed = True
+    else:
+        # 다중 페이지 출력 로직
+        if 'page_start' in row and pd.notna(row['page_start']) and row['page_start'] != "":
+            try:
+                p_start = int(row['page_start'])
+                p_end = int(row.get('page_end', p_start))
 
-    # 새로운 지침 데이터 (page_start와 page_end가 있는 경우)
-    if 'page_start' in row and pd.notna(row['page_start']) and row['page_start'] != "":
-        try:
-            p_start = int(row['page_start'])
-            p_end = int(row.get('page_end', p_start)) # 끝 페이지가 없으면 시작 페이지 1장만
+                for p in range(p_start, p_end + 1):
+                    page_idx = p - 1
+                    if 0 <= page_idx < len(pdf_doc):
+                        page = pdf_doc[page_idx]
+                        pix = page.get_pixmap(dpi=150)
+                        img_data = pix.tobytes("png")
+                        st.image(img_data, caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
+                        if p != p_end: 
+                            st.markdown("<br>", unsafe_allow_html=True)
+                        content_displayed = True
+                    else:
+                        st.error(f"해당 페이지({p})를 PDF에서 찾을 수 없습니다.")
+            except ValueError:
+                pass
 
-            # 시작 페이지부터 끝 페이지까지 반복해서 모두 그림으로 그려냅니다!
-            for p in range(p_start, p_end + 1):
-                page_idx = p - 1 # PDF는 0페이지부터 시작하므로 -1
+        # 구버전 데이터 호환 로직
+        if not content_displayed:
+            ref = row.get('reference', '')
+            match = re.search(r'\(p\.(\d+)\)', ref)
+            if match:
+                page_idx = int(match.group(1)) - 1
                 if 0 <= page_idx < len(pdf_doc):
                     page = pdf_doc[page_idx]
                     pix = page.get_pixmap(dpi=150)
                     img_data = pix.tobytes("png")
-                    st.image(img_data, caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
-                    # 여러 장일 경우 이미지 사이에 구분선을 넣어 깔끔하게 분리
-                    if p != p_end: 
-                        st.markdown("<br>", unsafe_allow_html=True)
+                    st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
+                    content_displayed = True
                 else:
-                    st.error(f"해당 페이지({p})를 PDF에서 찾을 수 없습니다.")
-            return # 그림을 다 그렸으면 여기서 종료
-        except ValueError:
-            pass # 숫자가 아닌 값이 들어있으면 무시하고 아래 구버전 로직으로 넘어감
-
-    # 구버전 질의회시집 데이터 호환용 (reference에 (p.123) 형태가 있는 경우)
-    ref = row.get('reference', '')
-    match = re.search(r'\(p\.(\d+)\)', ref)
-    if match:
-        page_idx = int(match.group(1)) - 1
-        if 0 <= page_idx < len(pdf_doc):
-            page = pdf_doc[page_idx]
-            pix = page.get_pixmap(dpi=150)
-            img_data = pix.tobytes("png")
-            st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
-        else:
-            st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
-    else:
-        st.info(f"{row.get('answer', '내용없음')}")
+                    st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
+            else:
+                st.info(f"{row.get('answer', '내용없음')}")
+                content_displayed = True
+                
+    # 🌟 [추가된 부분] 모든 페이지가 출력된 후 맨 아래에 '닫기' 버튼 생성
+    st.divider()
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # 고유한 버튼을 만들기 위해 문서 번호(id) 사용
+        doc_id = row.get('id', row.get('title', 'unknown'))
+        # 버튼을 누르면 st.rerun()이 실행되어 앱이 새로고침되며 자연스럽게 아코디언이 닫힘
+        if st.button("접기 (닫기) ⬆️", key=f"close_{doc_id}", use_container_width=True):
+            st.rerun()
 
 # 3. 검색창
 query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)")
