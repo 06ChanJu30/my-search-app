@@ -44,7 +44,6 @@ def load_ops_data():
         if not df.empty:
             df = df[~df['title'].str.contains('개정이력|목차', case=False, na=False)]
             
-            # 없는 컬럼 강제 생성 방어 (에러 방지용)
             if 'search_normalized' not in df.columns:
                 df['search_normalized'] = ""
             if 'title' not in df.columns:
@@ -92,13 +91,40 @@ if df.empty:
     st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
     st.stop()
 
+# 🌟 핵심 수정: 1장이 아니라 전체 범위(page_start ~ page_end)를 모두 출력하도록 변경!
 def display_manual_content(row):
+    if pdf_doc is None:
+        st.warning("원본 PDF 파일이 연결되어 있지 않습니다.")
+        st.info(f"{row.get('answer', '내용없음')}")
+        return
+
+    # 새로운 지침 데이터 (page_start와 page_end가 있는 경우)
+    if 'page_start' in row and pd.notna(row['page_start']) and row['page_start'] != "":
+        try:
+            p_start = int(row['page_start'])
+            p_end = int(row.get('page_end', p_start)) # 끝 페이지가 없으면 시작 페이지 1장만
+
+            # 시작 페이지부터 끝 페이지까지 반복해서 모두 그림으로 그려냅니다!
+            for p in range(p_start, p_end + 1):
+                page_idx = p - 1 # PDF는 0페이지부터 시작하므로 -1
+                if 0 <= page_idx < len(pdf_doc):
+                    page = pdf_doc[page_idx]
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    st.image(img_data, caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
+                    # 여러 장일 경우 이미지 사이에 구분선을 넣어 깔끔하게 분리
+                    if p != p_end: 
+                        st.markdown("<br>", unsafe_allow_html=True)
+                else:
+                    st.error(f"해당 페이지({p})를 PDF에서 찾을 수 없습니다.")
+            return # 그림을 다 그렸으면 여기서 종료
+        except ValueError:
+            pass # 숫자가 아닌 값이 들어있으면 무시하고 아래 구버전 로직으로 넘어감
+
+    # 구버전 질의회시집 데이터 호환용 (reference에 (p.123) 형태가 있는 경우)
     ref = row.get('reference', '')
     match = re.search(r'\(p\.(\d+)\)', ref)
-    if not match and 'page_start' in row:
-        match = type('obj', (object,), {'group': lambda self, x: str(row['page_start'])})()
-        
-    if pdf_doc is not None and match:
+    if match:
         page_idx = int(match.group(1)) - 1
         if 0 <= page_idx < len(pdf_doc):
             page = pdf_doc[page_idx]
@@ -108,7 +134,7 @@ def display_manual_content(row):
         else:
             st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
     else:
-        st.warning("원본 PDF 파일이 연결되어 있지 않습니다.")
+        st.info(f"{row.get('answer', '내용없음')}")
 
 # 3. 검색창
 query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)")
@@ -119,7 +145,7 @@ if query:
     mask = pd.Series([True] * len(df), index=df.index)
     
     try:
-        # [1] 교집합(AND) 검색 (question, answer 삭제하고 title과 search_normalized에서만 검색)
+        # [1] 교집합(AND) 검색
         for kw in keywords:
             kw_lower = kw.lower()
             kw_mask = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
@@ -142,11 +168,9 @@ if query:
             df['match_score'] = 0 
             for kw in keywords:
                 kw_lower = kw.lower()
-                # search_normalized에 있으면 1점
                 content_match = df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[content_match, 'match_score'] += 1
                 
-                # title에 있으면 2점
                 title_match = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 df.loc[title_match, 'match_score'] += 2
             
@@ -165,11 +189,9 @@ if query:
         st.error(f"앗! 검색 중 문제가 발생했습니다: {e}")
         
 else:
-    # 🌟 깔끔한 드롭다운(선택 상자) 목차 UI 🌟
+    # 깔끔한 드롭다운(선택 상자) 목차 UI
     st.subheader("📑 분야별 작업지침 목차")
-    
     categories = sorted(list(df['major_category'].unique()))
-    
     selected_toc = st.selectbox("📂 조회할 카테고리를 선택하세요", ["(목차를 선택해주세요)"] + categories)
     
     if selected_toc != "(목차를 선택해주세요)":
