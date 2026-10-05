@@ -31,7 +31,6 @@ if not os.path.exists(JSON_FILE_PATH):
     
 PDF_FILE_PATH = os.path.join(current_dir, "안전보건 작업지침 OPS.pdf") 
 
-# [개선 1] 로딩 상태를 명확히 보여주도록 show_spinner 추가
 @st.cache_data(show_spinner="데이터베이스(JSON)를 메모리에 로딩 중입니다...")
 def load_ops_data():
     if not os.path.exists(JSON_FILE_PATH):
@@ -80,7 +79,6 @@ def load_ops_data():
 
 df = load_ops_data()
 
-# [개선 1] 로딩 상태를 명확히 보여주도록 show_spinner 추가
 @st.cache_resource(show_spinner="원본 PDF 매뉴얼을 메모리에 로딩 중입니다...")
 def load_pdf():
     if os.path.exists(PDF_FILE_PATH):
@@ -93,7 +91,6 @@ if df.empty:
     st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
     st.stop()
 
-# 🌟 [개선 2] 검색어(keywords)를 인자로 받아 PDF 렌더링 전 하이라이트 처리
 def display_manual_content(row, keywords=None):
     content_displayed = False
     
@@ -113,7 +110,6 @@ def display_manual_content(row, keywords=None):
                     if 0 <= page_idx < len(pdf_doc):
                         page = pdf_doc[page_idx]
                         
-                        # ----- PDF 텍스트 검색 및 하이라이팅 추가 -----
                         annots_added = []
                         if keywords:
                             for kw in keywords:
@@ -122,12 +118,10 @@ def display_manual_content(row, keywords=None):
                                     annot = page.add_highlight_annot(inst)
                                     annot.update()
                                     annots_added.append(annot)
-                        # ---------------------------------------------
                         
                         pix = page.get_pixmap(dpi=150)
                         img_data = pix.tobytes("png")
                         
-                        # 원본 PDF 객체(캐시)가 오염되지 않도록 하이라이트 주석 삭제
                         for annot in annots_added:
                             page.delete_annot(annot)
                             
@@ -149,7 +143,6 @@ def display_manual_content(row, keywords=None):
                 if 0 <= page_idx < len(pdf_doc):
                     page = pdf_doc[page_idx]
                     
-                    # ----- 구버전 로직에도 동일하게 하이라이팅 적용 -----
                     annots_added = []
                     if keywords:
                         for kw in keywords:
@@ -164,7 +157,6 @@ def display_manual_content(row, keywords=None):
                     
                     for annot in annots_added:
                         page.delete_annot(annot)
-                    # ---------------------------------------------
                     
                     st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
                     content_displayed = True
@@ -200,11 +192,27 @@ if query:
         result_df = df[mask]
         
         if len(result_df) > 0:
-            st.subheader(f"총 {len(result_df)}건의 검색 결과가 있습니다.")
+            # 🌟 [개선 3] 검색 결과 상단에 다운로드 버튼 배치
+            col_res1, col_res2 = st.columns([7, 3])
+            with col_res1:
+                st.subheader(f"총 {len(result_df)}건의 검색 결과가 있습니다.")
+            with col_res2:
+                # 불필요한 내부 연산용 컬럼 제거 후 다운로드 데이터 생성
+                export_df = result_df.drop(columns=['search_normalized', 'clean_title', 'match_score'], errors='ignore')
+                csv_data = export_df.to_csv(index=False).encode('utf-8-sig') # 한글 깨짐 방지 인코딩
+                
+                st.download_button(
+                    label="📥 검색 결과 엑셀(CSV) 다운로드",
+                    data=csv_data,
+                    file_name="ops_search_results.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            
             st.divider()
+            
             for i, row in result_df.iterrows():
                 with st.expander(f"📖 [{row['major_category']}] {row.get('title', '제목없음')}"):
-                    # [변경] keywords 파라미터 전달
                     display_manual_content(row, keywords=keywords) 
         else:
             st.warning("정확히 일치하는 지침이 없습니다.")
@@ -229,7 +237,6 @@ if query:
                 st.info(f"💡 혹시 이런 지침을 찾으시나요? (연관성이 높은 지침 추천)")
                 for i, row in recommend_df.iterrows():
                     with st.expander(f"📖 [{row['major_category']}] {row.get('title', '제목없음')}"):
-                        # [변경] keywords 파라미터 전달
                         display_manual_content(row, keywords=keywords)
 
     except Exception as e:
@@ -245,7 +252,6 @@ else:
         cat_df = df[df['major_category'] == selected_toc]
         for _, row in cat_df.iterrows():
             with st.expander(f"📖 {row.get('title', '제목없음')}"):
-                # 목차에서 열 때는 하이라이트 불필요
                 display_manual_content(row) 
 
 # 6. 하단 문의처
