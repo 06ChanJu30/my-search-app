@@ -15,7 +15,7 @@ import base64
 # ---------------------------------------------------------
 st.set_page_config(page_title="작업지침 OPS 검색기", layout="centered", initial_sidebar_state="collapsed")
 
-# 모바일 호환 사이드바 네비게이션 (V3 기능)
+# 모바일 호환 사이드바 네비게이션
 menu = st.sidebar.radio("메뉴 이동", ["🔍 지침 검색", "⚙️ 관리자 대시보드"])
 
 # ---------------------------------------------------------
@@ -31,7 +31,7 @@ VECTOR_INDEX_PATH = os.path.join(current_dir, "vector_db.index")
 LOG_FILE_PATH = os.path.join(current_dir, "search_logs.csv")
 
 # ---------------------------------------------------------
-# 3. 데이터 및 AI 모델 캐싱 로드 (기존 로직 100% 보존)
+# 3. 데이터 및 AI 모델 캐싱 로드
 # ---------------------------------------------------------
 @st.cache_data(show_spinner="데이터베이스(JSON)를 메모리에 로딩 중입니다...")
 def load_ops_data():
@@ -53,7 +53,6 @@ def load_ops_data():
                 
             def assign_major_category(row):
                 text = str(row.get('title', '')) + str(row.get('category', '')) + str(row.get('id', ''))
-                # 기존 코드 완벽 보존
                 if 'IZ12B-1' in text: return '1. 공통'
                 elif 'IZ12B-2' in text: return '2. 장비'
                 elif 'IZ12B-3' in text: return '3. 보건'
@@ -81,14 +80,12 @@ def load_ops_data():
     except Exception as e:
         return pd.DataFrame()
 
-# V2: PDF 동시성 충돌 방지를 위해 바이트(Bytes)로 캐싱
 @st.cache_resource(show_spinner="원본 PDF 매뉴얼을 로딩 중입니다...")
 def load_pdf_bytes():
     if os.path.exists(PDF_FILE_PATH):
         with open(PDF_FILE_PATH, "rb") as f: return f.read()
     return None
 
-# V2: AI 추천 엔진 모델 로드 (FAISS + SBERT)
 @st.cache_resource(show_spinner="AI 추천 엔진을 로딩 중입니다...")
 def load_ai_models():
     try:
@@ -105,13 +102,12 @@ pdf_bytes = load_pdf_bytes()
 ai_model, faiss_index = load_ai_models()
 
 # ---------------------------------------------------------
-# V4: 백그라운드 영구 로깅 (GitHub API 연동)
+# 백그라운드 영구 로깅 (GitHub API 연동)
 # ---------------------------------------------------------
 def log_search(query, result_count):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"{now},{query},{result_count}\n"
     
-    # 1. 로컬 저장 (대시보드 표시용)
     try:
         file_exists = os.path.exists(LOG_FILE_PATH)
         with open(LOG_FILE_PATH, "a", newline="", encoding="utf-8-sig") as f:
@@ -121,7 +117,6 @@ def log_search(query, result_count):
     except Exception:
         pass
         
-    # 2. GitHub 원격 영구 저장 (Streamlit Secrets에 설정된 경우)
     if "GITHUB_TOKEN" in st.secrets and "REPO_NAME" in st.secrets:
         try:
             token = st.secrets["GITHUB_TOKEN"]
@@ -148,17 +143,16 @@ def log_search(query, result_count):
         except Exception:
             pass
 
-# V3: Excel VBA용 호환 다운로드 포맷팅
 @st.cache_data(show_spinner=False)
 def convert_df_to_csv_for_vba(result_dataframe):
-    export_df = result_dataframe.drop(columns=['search_normalized', 'clean_title', 'match_score'], errors='ignore').copy()
+    export_df = result_dataframe.drop(columns=['search_normalized', 'clean_title', 'match_score', 'relevance_score'], errors='ignore').copy()
     export_df['Report_Date'] = datetime.datetime.now().strftime("%Y-%m-%d")
     export_df['Target_Cell_Width'] = 400
     export_df['Target_Cell_Height'] = 300
     return export_df.to_csv(index=False).encode('utf-8-sig')
 
 # ---------------------------------------------------------
-# V4: 개인 AI API 접근 백도어 (Headless Mode)
+# 개인 AI API 접근 백도어 (Headless Mode)
 # ---------------------------------------------------------
 params = st.query_params
 api_query = params.get("query")
@@ -172,20 +166,28 @@ if api_format == "json" and api_query:
                   df['search_normalized'].str.lower().str.contains(kw.lower(), regex=False, na=False)
         mask = mask & kw_mask
         
-    result_df = df[mask]
+    result_df = df[mask].copy()
+    
+    result_df['relevance_score'] = 0
+    for kw in keywords:
+        kw_lower = kw.lower()
+        result_df.loc[result_df['title'].str.lower().str.contains(kw_lower, regex=False, na=False), 'relevance_score'] += 10
+        result_df.loc[result_df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False), 'relevance_score'] += 1
+    result_df = result_df.sort_values(by='relevance_score', ascending=False)
+    
     log_search(api_query, len(result_df))
     
     response_data = {
         "status": "success",
         "query": api_query,
         "count": len(result_df),
-        "results": result_df.drop(columns=['search_normalized', 'clean_title'], errors='ignore').to_dict(orient="records")
+        "results": result_df.drop(columns=['search_normalized', 'clean_title', 'relevance_score'], errors='ignore').to_dict(orient="records")
     }
     st.json(response_data)
-    st.stop() # UI 렌더링 중지
+    st.stop()
 
 # ---------------------------------------------------------
-# 4. 화면 렌더링 로직 (기존 로직 완벽 보존 + V2 렌더링 충돌 방지)
+# 4. 화면 렌더링 로직
 # ---------------------------------------------------------
 def display_manual_content(row, keywords=None, context_key=""):
     content_displayed = False
@@ -195,11 +197,8 @@ def display_manual_content(row, keywords=None, context_key=""):
         st.info(f"{row.get('answer', '내용없음')}")
         content_displayed = True
     else:
-        # 매 렌더링마다 일회성으로 PDF를 열어 충돌(Race Condition) 방지
         local_pdf = fitz.open("pdf", pdf_bytes)
-        
         try:
-            # 다중 페이지 출력 로직
             if 'page_start' in row and pd.notna(row['page_start']) and row['page_start'] != "":
                 try:
                     p_start = int(row['page_start'])
@@ -209,17 +208,13 @@ def display_manual_content(row, keywords=None, context_key=""):
                         page_idx = p - 1
                         if 0 <= page_idx < len(local_pdf):
                             page = local_pdf[page_idx]
-                            
-                            # 검색어 하이라이트 추가
                             if keywords:
                                 for kw in keywords:
                                     for inst in page.search_for(kw):
                                         page.add_highlight_annot(inst).update()
                                         
                             pix = page.get_pixmap(dpi=150)
-                            img_data = pix.tobytes("png")
-                            
-                            st.image(img_data, caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
+                            st.image(pix.tobytes("png"), caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
                             if p != p_end: 
                                 st.markdown("<br>", unsafe_allow_html=True)
                             content_displayed = True
@@ -228,7 +223,6 @@ def display_manual_content(row, keywords=None, context_key=""):
                 except ValueError:
                     pass
 
-            # 구버전 데이터 호환 로직 (기존 정규식 코드 100% 복원)
             if not content_displayed:
                 ref = row.get('reference', '')
                 match = re.search(r'\(p\.(\d+)\)', ref)
@@ -236,16 +230,13 @@ def display_manual_content(row, keywords=None, context_key=""):
                     page_idx = int(match.group(1)) - 1
                     if 0 <= page_idx < len(local_pdf):
                         page = local_pdf[page_idx]
-                        
                         if keywords:
                             for kw in keywords:
                                 for inst in page.search_for(kw):
                                     page.add_highlight_annot(inst).update()
                                     
                         pix = page.get_pixmap(dpi=150)
-                        img_data = pix.tobytes("png")
-                        
-                        st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
+                        st.image(pix.tobytes("png"), caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
                         content_displayed = True
                     else:
                         st.error("해당 페이지를 PDF에서 찾을 수 없습니다.")
@@ -253,15 +244,12 @@ def display_manual_content(row, keywords=None, context_key=""):
                     st.info(f"{row.get('answer', '내용없음')}")
                     content_displayed = True
         finally:
-            # 안전하게 메모리 해제
             local_pdf.close()
             
-    # 🌟 기존에 작성하셨던 "닫기" 버튼 기능 복원 🌟
     st.divider()
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         doc_id = row.get('id', row.get('title', 'unknown'))
-        # Streamlit 키 중복 에러를 방지하기 위해 context_key 추가
         unique_btn_key = f"close_{doc_id}_{context_key}_{uuid.uuid4().hex[:8]}"
         if st.button("접기 (닫기) ⬆️", key=unique_btn_key, use_container_width=True):
             st.rerun()
@@ -270,7 +258,6 @@ def display_manual_content(row, keywords=None, context_key=""):
 # 화면 분기: [1] 지침 검색 탭
 # =========================================================
 if menu == "🔍 지침 검색":
-    # 타이틀부 기존 구조 유지
     col1, col2 = st.columns([1.5, 8.5])
     with col1:
         if os.path.exists("logo.png"):
@@ -291,34 +278,41 @@ if menu == "🔍 지침 검색":
         st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
         st.stop()
         
-    # URL 쿼리 파라미터가 있으면 초기 검색어로 세팅
     default_search = api_query if api_query else ""
-    query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)", value=default_search)
+    query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 고소작업대, 화기작업)", value=default_search)
 
     if query:
         keywords = query.strip().split()
         mask = pd.Series([True] * len(df), index=df.index)
         
         try:
-            # [1] 교집합(AND) 검색
             for kw in keywords:
                 kw_lower = kw.lower()
                 kw_mask = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
                           df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
                 mask = mask & kw_mask
                 
-            result_df = df[mask]
+            result_df = df[mask].copy()
             
-            # API 자동 진입이 아닐 때만 UI 검색 로그 수집 방지 (중복 기록 방지)
             if query != api_query:
                 log_search(query, len(result_df))
             
             if len(result_df) > 0:
+                # 🌟 [핵심 수정] 제목 일치 가중치 부여 및 상단 정렬
+                result_df['relevance_score'] = 0
+                for kw in keywords:
+                    kw_lower = kw.lower()
+                    title_match = result_df['title'].str.lower().str.contains(kw_lower, regex=False, na=False)
+                    result_df.loc[title_match, 'relevance_score'] += 10
+                    content_match = result_df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
+                    result_df.loc[content_match, 'relevance_score'] += 1
+                
+                result_df = result_df.sort_values(by='relevance_score', ascending=False)
+                
                 col_res1, col_res2 = st.columns([7, 3])
                 with col_res1:
                     st.subheader(f"총 {len(result_df)}건의 검색 결과가 있습니다.")
                 with col_res2:
-                    # 다운로드 버튼 (VBA 연계용)
                     st.download_button(
                         label="📥 엑셀용 데이터 다운로드",
                         data=convert_df_to_csv_for_vba(result_df),
@@ -333,9 +327,7 @@ if menu == "🔍 지침 검색":
             else:
                 st.warning("정확히 일치하는 지침이 없습니다.")
             
-            # [2] 유사 검색(관련 검색어) 로직 (V4.1: 인덱스 밀림 방지 및 AI 커트라인 수정 적용)
             if len(result_df) <= 3:
-                # 1) AI 벡터 검색 (가능할 경우)
                 if ai_model and faiss_index:
                     st.info("💡 혹시 이런 지침을 찾으시나요? (AI 문맥 추천)")
                     import numpy as np
@@ -353,8 +345,6 @@ if menu == "🔍 지침 검색":
                         for i, row in recommend_df.iterrows():
                             with st.expander(f"✨(AI 추천) [{row['major_category']}] {row.get('title', '제목없음')}"):
                                 display_manual_content(row, keywords=keywords, context_key="ai_rec")
-                
-                # 2) 기존 텍스트 점수 기반 검색 로직 보존 (AI 사용 불가 시)
                 else:
                     df['match_score'] = 0 
                     for kw in keywords:
@@ -377,7 +367,6 @@ if menu == "🔍 지침 검색":
             st.error(f"앗! 검색 중 문제가 발생했습니다: {e}")
             
     else:
-        # 검색어 미입력 시 드롭다운 목차 (기존 UI 100% 유지)
         st.subheader("📑 분야별 작업지침 목차")
         categories = sorted(list(df['major_category'].unique()))
         selected_toc = st.selectbox("📂 조회할 카테고리를 선택하세요", ["(목차를 선택해주세요)"] + categories)
@@ -389,7 +378,7 @@ if menu == "🔍 지침 검색":
                     display_manual_content(row, context_key="toc") 
 
 # =========================================================
-# 화면 분기: [2] 관리자 대시보드 (V3)
+# 화면 분기: [2] 관리자 대시보드
 # =========================================================
 elif menu == "⚙️ 관리자 대시보드":
     st.markdown("## ⚙️ 현장 검색 통계 및 DB 관리")
@@ -465,7 +454,7 @@ elif menu == "⚙️ 관리자 대시보드":
                     st.error(f"업데이트 중 오류 발생: {e}")
 
 # ---------------------------------------------------------
-# 6. 하단 문의처 (기존 원본 텍스트 100% 복원)
+# 6. 하단 문의처
 # ---------------------------------------------------------
 st.divider()
 st.caption("📄 문의: 안전팀 백찬주 대리 (010-2528-5706)")
