@@ -105,7 +105,7 @@ pdf_bytes = load_pdf_bytes()
 ai_model, faiss_index = load_ai_models()
 
 # ---------------------------------------------------------
-# 🌟 [누락 복구] V4: 백그라운드 영구 로깅 (GitHub API 연동)
+# V4: 백그라운드 영구 로깅 (GitHub API 연동)
 # ---------------------------------------------------------
 def log_search(query, result_count):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -158,7 +158,7 @@ def convert_df_to_csv_for_vba(result_dataframe):
     return export_df.to_csv(index=False).encode('utf-8-sig')
 
 # ---------------------------------------------------------
-# 🌟 [누락 복구] V4: 개인 AI API 접근 백도어 (Headless Mode)
+# V4: 개인 AI API 접근 백도어 (Headless Mode)
 # ---------------------------------------------------------
 params = st.query_params
 api_query = params.get("query")
@@ -333,29 +333,23 @@ if menu == "🔍 지침 검색":
             else:
                 st.warning("정확히 일치하는 지침이 없습니다.")
             
-# [2] 유사 검색(관련 검색어) 로직 (V4.1: 인덱스 밀림 버그 수정 및 정확도 컷)
+            # [2] 유사 검색(관련 검색어) 로직 (V4.1: 인덱스 밀림 방지 및 AI 커트라인 수정 적용)
             if len(result_df) <= 3:
                 # 1) AI 벡터 검색 (가능할 경우)
                 if ai_model and faiss_index:
                     st.info("💡 혹시 이런 지침을 찾으시나요? (AI 문맥 추천)")
                     import numpy as np
                     query_vector = ai_model.encode([query]).astype('float32')
-                    # 기존 5개에서 10개로 넉넉히 찾은 후 필터링
-                    distances, indices = faiss_index.search(query_vector, 10) 
+                    distances, indices = faiss_index.search(query_vector, 10)
                     
                     valid_indices = []
-                    # 🌟 핵심 수정 1: 인덱스 밀림 방지 및 정확도 커트라인
                     for dist, idx in zip(distances[0], indices[0]):
-                        # FAISS의 결과 인덱스(idx)가 필터링된 현재 df.index에 존재하는지 확인 (밀림 방지)
                         if idx != -1 and idx in df.index:
-                            # 원본 검색 결과에 이미 나온 문서는 제외
                             if idx not in result_df.index:
                                 valid_indices.append(idx)
-                    
+                                
                     if valid_indices:
-                        # 🌟 핵심 수정 2: iloc(순서)가 아닌 loc(고유 인덱스)로 정확하게 매핑
-                        recommend_df = df.loc[valid_indices].head(5) # 가장 정확한 상위 5개만 노출
-                        
+                        recommend_df = df.loc[valid_indices].head(5)
                         for i, row in recommend_df.iterrows():
                             with st.expander(f"✨(AI 추천) [{row['major_category']}] {row.get('title', '제목없음')}"):
                                 display_manual_content(row, keywords=keywords, context_key="ai_rec")
@@ -369,7 +363,6 @@ if menu == "🔍 지침 검색":
                         df.loc[df['title'].str.lower().str.contains(kw_lower, regex=False, na=False), 'match_score'] += 2
                     
                     recommend_df = df[~df.index.isin(result_df.index)]
-                    # 키워드 검색에서도 연관성 커트라인 강화
                     min_score_required = 1 if len(keywords) == 1 else 2
                     recommend_df = recommend_df[recommend_df['match_score'] >= min_score_required]
                     recommend_df = recommend_df.sort_values(by='match_score', ascending=False).head(5)
@@ -379,6 +372,21 @@ if menu == "🔍 지침 검색":
                         for i, row in recommend_df.iterrows():
                             with st.expander(f"📖 [{row['major_category']}] {row.get('title', '제목없음')}"):
                                 display_manual_content(row, keywords=keywords, context_key="txt_rec")
+
+        except Exception as e:
+            st.error(f"앗! 검색 중 문제가 발생했습니다: {e}")
+            
+    else:
+        # 검색어 미입력 시 드롭다운 목차 (기존 UI 100% 유지)
+        st.subheader("📑 분야별 작업지침 목차")
+        categories = sorted(list(df['major_category'].unique()))
+        selected_toc = st.selectbox("📂 조회할 카테고리를 선택하세요", ["(목차를 선택해주세요)"] + categories)
+        
+        if selected_toc != "(목차를 선택해주세요)":
+            cat_df = df[df['major_category'] == selected_toc]
+            for _, row in cat_df.iterrows():
+                with st.expander(f"📖 {row.get('title', '제목없음')}"):
+                    display_manual_content(row, context_key="toc") 
 
 # =========================================================
 # 화면 분기: [2] 관리자 대시보드 (V3)
