@@ -9,15 +9,16 @@ import csv
 import uuid
 import requests
 import base64
-import time  # Task 14: 재시도 딜레이를 위한 모듈 추가
+import time
 
 # ---------------------------------------------------------
-# 1. 페이지 설정 및 네비게이션
+# 1. 페이지 설정 및 네비게이션 변수 고정 (오타 원천 차단)
 # ---------------------------------------------------------
 st.set_page_config(page_title="작업지침 OPS 검색기", layout="centered", initial_sidebar_state="collapsed")
 
-# 모바일 호환 사이드바 네비게이션
-menu = st.sidebar.radio("메뉴 이동", ["🔍 지침 검색", "⚙️️ 관리자 대시보드"])
+MENU_SEARCH = "🔍 지침 검색"
+MENU_ADMIN = "⚙️ 관리자 대시보드"
+menu = st.sidebar.radio("메뉴 이동", [MENU_SEARCH, MENU_ADMIN])
 
 # ---------------------------------------------------------
 # 2. 리소스 및 디렉토리 설정
@@ -103,13 +104,12 @@ pdf_bytes = load_pdf_bytes()
 ai_model, faiss_index = load_ai_models()
 
 # ---------------------------------------------------------
-# 백그라운드 영구 로깅 (GitHub API 연동 - V5: 동시성 충돌 방지 로직 적용)
+# 백그라운드 영구 로깅 (GitHub API 연동 - 동시성 충돌 방지 로직 적용)
 # ---------------------------------------------------------
 def log_search(query, result_count):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"{now},{query},{result_count}\n"
     
-    # 1. 로컬 저장
     try:
         file_exists = os.path.exists(LOG_FILE_PATH)
         with open(LOG_FILE_PATH, "a", newline="", encoding="utf-8-sig") as f:
@@ -119,14 +119,12 @@ def log_search(query, result_count):
     except Exception:
         pass
         
-    # 2. GitHub 원격 영구 저장 (재시도 로직 포함)
     if "GITHUB_TOKEN" in st.secrets and "REPO_NAME" in st.secrets:
         token = st.secrets["GITHUB_TOKEN"]
         repo = st.secrets["REPO_NAME"]
         url = f"https://api.github.com/repos/{repo}/contents/search_logs.csv"
         headers = {"Authorization": f"token {token}"}
         
-        # 최대 3회 재시도 (409 Conflict 발생 시 대기 후 다시 시도)
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -148,10 +146,8 @@ def log_search(query, result_count):
                 
                 put_res = requests.put(url, headers=headers, json=payload)
                 
-                # 성공했으면 루프 탈출
                 if put_res.status_code in [200, 201]:
                     break
-                # 동시성 충돌 발생 시 1초 대기 후 재시도
                 elif put_res.status_code == 409:
                     time.sleep(1)
                     continue
@@ -274,7 +270,7 @@ def display_manual_content(row, keywords=None, context_key=""):
 # =========================================================
 # 화면 분기: [1] 지침 검색 탭
 # =========================================================
-if menu == "🔍 지침 검색":
+if menu == MENU_SEARCH:
     col1, col2 = st.columns([1.5, 8.5])
     with col1:
         if os.path.exists("logo.png"):
@@ -394,113 +390,104 @@ if menu == "🔍 지침 검색":
                     display_manual_content(row, context_key="toc") 
 
 # =========================================================
-# 화면 분기: [2] 관리자 대시보드 (V5: 보안 패치 및 진행률 UI 추가)
+# 화면 분기: [2] 관리자 대시보드
 # =========================================================
-elif menu == "⚙ 관리자 대시보드":
+elif menu == MENU_ADMIN:
     st.markdown("## ⚙️ 현장 검색 통계 및 DB 관리")
     
-    # 🌟 Task 13: 관리자 대시보드 최소 보안 조치
-    if "ADMIN_PW" in st.secrets:
-        admin_pw = st.secrets["ADMIN_PW"]
-    else:
-        admin_pw = "admin1234" # 임시 비밀번호 (Secrets 미설정 시)
-        
+    admin_pw = st.secrets.get("ADMIN_PW", "admin1234")
     pwd = st.text_input("🔒 관리자 비밀번호를 입력하세요", type="password")
     
-    if pwd != admin_pw:
-        if pwd:
-            st.error("비밀번호가 일치하지 않습니다.")
-        st.stop() # 비밀번호가 틀리면 여기서 화면 렌더링 중단
-    
-    # 비밀번호 일치 시 아래 대시보드 내용 표시
-    st.success("관리자 인증 완료")
-    
-    st.markdown("### 📊 누적 현장 검색 통계")
-    if os.path.exists(LOG_FILE_PATH):
-        log_df = pd.read_csv(LOG_FILE_PATH)
-        if not log_df.empty:
-            col_stat1, col_stat2 = st.columns(2)
-            with col_stat1:
-                st.write("**🔥 가장 많이 검색된 키워드 (Top 5)**")
-                top_queries = log_df['Search_Query'].value_counts().head(5)
-                st.bar_chart(top_queries)
-            with col_stat2:
-                st.write("**⚠️ 검색 실패 키워드 (결과 0건)**")
-                failed_searches = log_df[log_df['Result_Count'] == 0]['Search_Query'].value_counts().head(5)
-                if not failed_searches.empty:
-                    st.bar_chart(failed_searches)
-                else:
-                    st.info("검색 실패 기록이 없습니다.")
-    else:
-        st.info("아직 누적된 검색 로그가 없습니다.")
+    if pwd == admin_pw:
+        st.success("관리자 인증 완료")
         
-    st.divider()
-
-    st.markdown("### 📑 신규 작업지침서(PDF) 업로드 및 DB 갱신")
-    st.info("개정된 PDF를 업로드하면 서버에서 텍스트를 파싱하고 AI 인덱스를 갱신합니다.")
-    
-    uploaded_pdf = st.file_uploader("개정판 PDF 파일 선택", type="pdf")
-    if uploaded_pdf:
-        if st.button("🚀 DB 갱신 및 AI 학습 시작"):
-            # 🌟 Task 15: PDF 업로드 시 청크 처리 및 시각적 진행률 표시
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+        st.markdown("### 📊 누적 현장 검색 통계")
+        if os.path.exists(LOG_FILE_PATH):
+            log_df = pd.read_csv(LOG_FILE_PATH)
+            if not log_df.empty:
+                col_stat1, col_stat2 = st.columns(2)
+                with col_stat1:
+                    st.write("**🔥 가장 많이 검색된 키워드 (Top 5)**")
+                    top_queries = log_df['Search_Query'].value_counts().head(5)
+                    st.bar_chart(top_queries)
+                with col_stat2:
+                    st.write("**⚠️ 검색 실패 키워드 (결과 0건)**")
+                    failed_searches = log_df[log_df['Result_Count'] == 0]['Search_Query'].value_counts().head(5)
+                    if not failed_searches.empty:
+                        st.bar_chart(failed_searches)
+                    else:
+                        st.info("검색 실패 기록이 없습니다.")
+        else:
+            st.info("아직 누적된 검색 로그가 없습니다.")
             
-            try:
-                status_text.text("진행 상태: [1/4] PDF 업로드 중...")
-                with open(PDF_FILE_PATH, "wb") as f:
-                    f.write(uploaded_pdf.getbuffer())
-                progress_bar.progress(10)
+        st.divider()
+
+        st.markdown("### 📑 신규 작업지침서(PDF) 업로드 및 DB 갱신")
+        st.info("개정된 PDF를 업로드하면 서버에서 텍스트를 파싱하고 AI 인덱스를 갱신합니다.")
+        
+        uploaded_pdf = st.file_uploader("개정판 PDF 파일 선택", type="pdf")
+        if uploaded_pdf:
+            if st.button("🚀 DB 갱신 및 AI 학습 시작"):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                status_text.text("진행 상태: [2/4] PDF 텍스트 추출 중...")
-                new_doc = fitz.open(PDF_FILE_PATH)
-                new_data = []
-                texts_for_embedding = []
-                total_pages = len(new_doc)
-                
-                for i, page in enumerate(new_doc):
-                    text = page.get_text("text").strip()
-                    if text:
-                        title_candidate = text.split('\n')[0]
-                        row_dict = {
-                            "id": f"NEW-{i}",
-                            "title": title_candidate[:50],
-                            "category": "신규업데이트",
-                            "page_start": i + 1,
-                            "page_end": i + 1,
-                            "answer": text[:200]
-                        }
-                        new_data.append(row_dict)
-                        texts_for_embedding.append(title_candidate + " " + text[:200])
+                try:
+                    status_text.text("진행 상태: [1/4] PDF 업로드 중...")
+                    with open(PDF_FILE_PATH, "wb") as f:
+                        f.write(uploaded_pdf.getbuffer())
+                    progress_bar.progress(10)
                     
-                    # 페이지 분석에 따른 동적 진행률 업데이트 (10% ~ 50%)
-                    if total_pages > 0:
-                        progress_bar.progress(10 + int((i / total_pages) * 40))
+                    status_text.text("진행 상태: [2/4] PDF 텍스트 추출 중...")
+                    new_doc = fitz.open(PDF_FILE_PATH)
+                    new_data = []
+                    texts_for_embedding = []
+                    total_pages = len(new_doc)
+                    
+                    for i, page in enumerate(new_doc):
+                        text = page.get_text("text").strip()
+                        if text:
+                            title_candidate = text.split('\n')[0]
+                            row_dict = {
+                                "id": f"NEW-{i}",
+                                "title": title_candidate[:50],
+                                "category": "신규업데이트",
+                                "page_start": i + 1,
+                                "page_end": i + 1,
+                                "answer": text[:200]
+                            }
+                            new_data.append(row_dict)
+                            texts_for_embedding.append(title_candidate + " " + text[:200])
                         
-                new_doc.close()
-                
-                status_text.text("진행 상태: [3/4] JSON 데이터베이스 저장 중...")
-                with open(JSON_FILE_PATH, 'w', encoding='utf-8') as f:
-                    json.dump(new_data, f, ensure_ascii=False, indent=2)
-                progress_bar.progress(60)
-                
-                status_text.text("진행 상태: [4/4] AI 벡터 변환 및 인덱스 갱신 중...")
-                if ai_model:
-                    import faiss
-                    import numpy as np
-                    new_embeddings = ai_model.encode(texts_for_embedding).astype('float32')
-                    dimension = new_embeddings.shape[1]
-                    new_index = faiss.IndexFlatL2(dimension)
-                    new_index.add(new_embeddings)
-                    faiss.write_index(new_index, VECTOR_INDEX_PATH)
-                progress_bar.progress(100)
-                
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                status_text.success("✅ 새로운 지침서 분석 및 벡터 DB 갱신 완료!")
-            except Exception as e:
-                status_text.error(f"업데이트 중 오류 발생: {e}")
-                progress_bar.empty()
+                        if total_pages > 0:
+                            progress_bar.progress(10 + int((i / total_pages) * 40))
+                            
+                    new_doc.close()
+                    
+                    status_text.text("진행 상태: [3/4] JSON 데이터베이스 저장 중...")
+                    with open(JSON_FILE_PATH, 'w', encoding='utf-8') as f:
+                        json.dump(new_data, f, ensure_ascii=False, indent=2)
+                    progress_bar.progress(60)
+                    
+                    status_text.text("진행 상태: [4/4] AI 벡터 변환 및 인덱스 갱신 중...")
+                    if ai_model:
+                        import faiss
+                        import numpy as np
+                        new_embeddings = ai_model.encode(texts_for_embedding).astype('float32')
+                        dimension = new_embeddings.shape[1]
+                        new_index = faiss.IndexFlatL2(dimension)
+                        new_index.add(new_embeddings)
+                        faiss.write_index(new_index, VECTOR_INDEX_PATH)
+                    progress_bar.progress(100)
+                    
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    status_text.success("✅ 새로운 지침서 분석 및 벡터 DB 갱신 완료!")
+                except Exception as e:
+                    status_text.error(f"업데이트 중 오류 발생: {e}")
+                    progress_bar.empty()
+                    
+    elif pwd:
+        st.error("비밀번호가 일치하지 않습니다.")
 
 # ---------------------------------------------------------
 # 6. 하단 문의처
