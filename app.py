@@ -7,6 +7,8 @@ import fitz  # PyMuPDF
 import datetime
 import csv
 import uuid
+import requests
+import base64
 
 # ---------------------------------------------------------
 # 1. 페이지 설정 및 네비게이션
@@ -102,18 +104,49 @@ df = load_ops_data()
 pdf_bytes = load_pdf_bytes()
 ai_model, faiss_index = load_ai_models()
 
-# V3: 검색 로그 백그라운드 수집
+# ---------------------------------------------------------
+# 🌟 [누락 복구] V4: 백그라운드 영구 로깅 (GitHub API 연동)
+# ---------------------------------------------------------
 def log_search(query, result_count):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"{now},{query},{result_count}\n"
+    
+    # 1. 로컬 저장 (대시보드 표시용)
     try:
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         file_exists = os.path.exists(LOG_FILE_PATH)
         with open(LOG_FILE_PATH, "a", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f)
             if not file_exists:
-                writer.writerow(["Timestamp", "Search_Query", "Result_Count"])
-            writer.writerow([now, query, result_count])
+                f.write("Timestamp,Search_Query,Result_Count\n")
+            f.write(log_line)
     except Exception:
         pass
+        
+    # 2. GitHub 원격 영구 저장 (Streamlit Secrets에 설정된 경우)
+    if "GITHUB_TOKEN" in st.secrets and "REPO_NAME" in st.secrets:
+        try:
+            token = st.secrets["GITHUB_TOKEN"]
+            repo = st.secrets["REPO_NAME"]
+            url = f"https://api.github.com/repos/{repo}/contents/search_logs.csv"
+            headers = {"Authorization": f"token {token}"}
+            
+            res = requests.get(url, headers=headers)
+            if res.status_code == 200:
+                file_data = res.json()
+                sha = file_data['sha']
+                content = base64.b64decode(file_data['content']).decode('utf-8')
+                new_content = content + log_line
+            else:
+                sha = None
+                new_content = "Timestamp,Search_Query,Result_Count\n" + log_line
+                
+            payload = {
+                "message": f"Auto-log: search '{query}'",
+                "content": base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+            }
+            if sha: payload["sha"] = sha
+            requests.put(url, headers=headers, json=payload)
+        except Exception:
+            pass
 
 # V3: Excel VBA용 호환 다운로드 포맷팅
 @st.cache_data(show_spinner=False)
@@ -123,6 +156,33 @@ def convert_df_to_csv_for_vba(result_dataframe):
     export_df['Target_Cell_Width'] = 400
     export_df['Target_Cell_Height'] = 300
     return export_df.to_csv(index=False).encode('utf-8-sig')
+
+# ---------------------------------------------------------
+# 🌟 [누락 복구] V4: 개인 AI API 접근 백도어 (Headless Mode)
+# ---------------------------------------------------------
+params = st.query_params
+api_query = params.get("query")
+api_format = params.get("format")
+
+if api_format == "json" and api_query:
+    keywords = api_query.strip().split()
+    mask = pd.Series([True] * len(df), index=df.index)
+    for kw in keywords:
+        kw_mask = df['title'].str.lower().str.contains(kw.lower(), regex=False, na=False) | \
+                  df['search_normalized'].str.lower().str.contains(kw.lower(), regex=False, na=False)
+        mask = mask & kw_mask
+        
+    result_df = df[mask]
+    log_search(api_query, len(result_df))
+    
+    response_data = {
+        "status": "success",
+        "query": api_query,
+        "count": len(result_df),
+        "results": result_df.drop(columns=['search_normalized', 'clean_title'], errors='ignore').to_dict(orient="records")
+    }
+    st.json(response_data)
+    st.stop() # UI 렌더링 중지
 
 # ---------------------------------------------------------
 # 4. 화면 렌더링 로직 (기존 로직 완벽 보존 + V2 렌더링 충돌 방지)
@@ -230,8 +290,10 @@ if menu == "🔍 지침 검색":
     if df.empty:
         st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
         st.stop()
-
-    query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)")
+        
+    # URL 쿼리 파라미터가 있으면 초기 검색어로 세팅
+    default_search = api_query if api_query else ""
+    query = st.text_input("🔍 검색어를 입력하세요. (예: 타워크레인, 화기작업, IZ12B-104)", value=default_search)
 
     if query:
         keywords = query.strip().split()
@@ -247,8 +309,9 @@ if menu == "🔍 지침 검색":
                 
             result_df = df[mask]
             
-            # 검색 로그 수집
-            log_search(query, len(result_df))
+            # API 자동 진입이 아닐 때만 UI 검색 로그 수집 방지 (중복 기록 방지)
+            if query != api_query:
+                log_search(query, len(result_df))
             
             if len(result_df) > 0:
                 col_res1, col_res2 = st.columns([7, 3])
