@@ -31,7 +31,8 @@ if not os.path.exists(JSON_FILE_PATH):
     
 PDF_FILE_PATH = os.path.join(current_dir, "안전보건 작업지침 OPS.pdf") 
 
-@st.cache_data
+# [개선 1] 로딩 상태를 명확히 보여주도록 show_spinner 추가
+@st.cache_data(show_spinner="데이터베이스(JSON)를 메모리에 로딩 중입니다...")
 def load_ops_data():
     if not os.path.exists(JSON_FILE_PATH):
         return pd.DataFrame()
@@ -79,7 +80,8 @@ def load_ops_data():
 
 df = load_ops_data()
 
-@st.cache_resource
+# [개선 1] 로딩 상태를 명확히 보여주도록 show_spinner 추가
+@st.cache_resource(show_spinner="원본 PDF 매뉴얼을 메모리에 로딩 중입니다...")
 def load_pdf():
     if os.path.exists(PDF_FILE_PATH):
         return fitz.open(PDF_FILE_PATH)
@@ -91,8 +93,8 @@ if df.empty:
     st.error("데이터베이스 파일이 없습니다. 깃허브에 JSON 데이터 파일을 업로드해주세요.")
     st.stop()
 
-# 🌟 그림 출력 및 하단 "닫기" 버튼 기능 추가
-def display_manual_content(row):
+# 🌟 [개선 2] 검색어(keywords)를 인자로 받아 PDF 렌더링 전 하이라이트 처리
+def display_manual_content(row, keywords=None):
     content_displayed = False
     
     if pdf_doc is None:
@@ -110,8 +112,25 @@ def display_manual_content(row):
                     page_idx = p - 1
                     if 0 <= page_idx < len(pdf_doc):
                         page = pdf_doc[page_idx]
+                        
+                        # ----- PDF 텍스트 검색 및 하이라이팅 추가 -----
+                        annots_added = []
+                        if keywords:
+                            for kw in keywords:
+                                text_instances = page.search_for(kw)
+                                for inst in text_instances:
+                                    annot = page.add_highlight_annot(inst)
+                                    annot.update()
+                                    annots_added.append(annot)
+                        # ---------------------------------------------
+                        
                         pix = page.get_pixmap(dpi=150)
                         img_data = pix.tobytes("png")
+                        
+                        # 원본 PDF 객체(캐시)가 오염되지 않도록 하이라이트 주석 삭제
+                        for annot in annots_added:
+                            page.delete_annot(annot)
+                            
                         st.image(img_data, caption=f"원본 매뉴얼 (페이지 {p})", use_container_width=True)
                         if p != p_end: 
                             st.markdown("<br>", unsafe_allow_html=True)
@@ -129,8 +148,24 @@ def display_manual_content(row):
                 page_idx = int(match.group(1)) - 1
                 if 0 <= page_idx < len(pdf_doc):
                     page = pdf_doc[page_idx]
+                    
+                    # ----- 구버전 로직에도 동일하게 하이라이팅 적용 -----
+                    annots_added = []
+                    if keywords:
+                        for kw in keywords:
+                            text_instances = page.search_for(kw)
+                            for inst in text_instances:
+                                annot = page.add_highlight_annot(inst)
+                                annot.update()
+                                annots_added.append(annot)
+                                
                     pix = page.get_pixmap(dpi=150)
                     img_data = pix.tobytes("png")
+                    
+                    for annot in annots_added:
+                        page.delete_annot(annot)
+                    # ---------------------------------------------
+                    
                     st.image(img_data, caption=f"원본 매뉴얼 (페이지 {page_idx + 1})", use_container_width=True)
                     content_displayed = True
                 else:
@@ -139,13 +174,10 @@ def display_manual_content(row):
                 st.info(f"{row.get('answer', '내용없음')}")
                 content_displayed = True
                 
-    # 🌟 [추가된 부분] 모든 페이지가 출력된 후 맨 아래에 '닫기' 버튼 생성
     st.divider()
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # 고유한 버튼을 만들기 위해 문서 번호(id) 사용
         doc_id = row.get('id', row.get('title', 'unknown'))
-        # 버튼을 누르면 st.rerun()이 실행되어 앱이 새로고침되며 자연스럽게 아코디언이 닫힘
         if st.button("접기 (닫기) ⬆️", key=f"close_{doc_id}", use_container_width=True):
             st.rerun()
 
@@ -172,7 +204,8 @@ if query:
             st.divider()
             for i, row in result_df.iterrows():
                 with st.expander(f"📖 [{row['major_category']}] {row.get('title', '제목없음')}"):
-                    display_manual_content(row)
+                    # [변경] keywords 파라미터 전달
+                    display_manual_content(row, keywords=keywords) 
         else:
             st.warning("정확히 일치하는 지침이 없습니다.")
         
@@ -196,7 +229,8 @@ if query:
                 st.info(f"💡 혹시 이런 지침을 찾으시나요? (연관성이 높은 지침 추천)")
                 for i, row in recommend_df.iterrows():
                     with st.expander(f"📖 [{row['major_category']}] {row.get('title', '제목없음')}"):
-                        display_manual_content(row)
+                        # [변경] keywords 파라미터 전달
+                        display_manual_content(row, keywords=keywords)
 
     except Exception as e:
         st.error(f"앗! 검색 중 문제가 발생했습니다: {e}")
@@ -211,7 +245,8 @@ else:
         cat_df = df[df['major_category'] == selected_toc]
         for _, row in cat_df.iterrows():
             with st.expander(f"📖 {row.get('title', '제목없음')}"):
-                display_manual_content(row)
+                # 목차에서 열 때는 하이라이트 불필요
+                display_manual_content(row) 
 
 # 6. 하단 문의처
 st.divider()
