@@ -88,7 +88,7 @@ def load_pdf_bytes():
         with open(PDF_FILE_PATH, "rb") as f: return f.read()
     return None
 
-@st.cache_resource(show_spinner="AI 추천 엔진을 로딩 중입니다...")
+@st.cache_resource(show_spinner="로딩 중입니다...")
 def load_ai_models():
     try:
         from sentence_transformers import SentenceTransformer
