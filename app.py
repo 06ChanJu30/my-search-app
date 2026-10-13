@@ -11,6 +11,8 @@ import requests
 import base64
 import time
 
+import ops_rank  # 지침 검색 순위 (2026-10 개선: 단어 일부만 맞아도, 현장 용어 사전, 0건이면 다시 찾기)
+
 # ---------------------------------------------------------
 # 1. 페이지 설정 및 네비게이션 변수 고정 (오타 원천 차단)
 # ---------------------------------------------------------
@@ -100,6 +102,16 @@ def load_ai_models():
         return None, None
 
 df = load_ops_data()
+
+
+def rank_search(query):
+    """지침 검색 (ops_rank.py) - (결과 DataFrame(relevance_score 점수 높은 순), 0건이라 뺀 단어). 메인 검색·JSON API 공용."""
+    corpus = ops_rank.build_corpus(df['title'].tolist(), df['search_normalized'].tolist())
+    hits, _, dropped = ops_rank.rank(query, corpus)
+    result = df.iloc[[i for i, _ in hits]].copy()
+    result['relevance_score'] = [s for _, s in hits]
+    return result, dropped
+
 pdf_bytes = load_pdf_bytes()
 ai_model, faiss_index = load_ai_models()
 
@@ -172,21 +184,7 @@ api_query = params.get("query")
 api_format = params.get("format")
 
 if api_format == "json" and api_query:
-    keywords = api_query.strip().split()
-    mask = pd.Series([True] * len(df), index=df.index)
-    for kw in keywords:
-        kw_mask = df['title'].str.lower().str.contains(kw.lower(), regex=False, na=False) | \
-                  df['search_normalized'].str.lower().str.contains(kw.lower(), regex=False, na=False)
-        mask = mask & kw_mask
-        
-    result_df = df[mask].copy()
-    
-    result_df['relevance_score'] = 0
-    for kw in keywords:
-        kw_lower = kw.lower()
-        result_df.loc[result_df['title'].str.lower().str.contains(kw_lower, regex=False, na=False), 'relevance_score'] += 10
-        result_df.loc[result_df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False), 'relevance_score'] += 1
-    result_df = result_df.sort_values(by='relevance_score', ascending=False)
+    result_df, _dropped = rank_search(api_query)
     
     log_search(api_query, len(result_df))
     
@@ -296,30 +294,16 @@ if menu == MENU_SEARCH:
 
     if query:
         keywords = query.strip().split()
-        mask = pd.Series([True] * len(df), index=df.index)
         
         try:
-            for kw in keywords:
-                kw_lower = kw.lower()
-                kw_mask = df['title'].str.lower().str.contains(kw_lower, regex=False, na=False) | \
-                          df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
-                mask = mask & kw_mask
-                
-            result_df = df[mask].copy()
+            result_df, dropped = rank_search(query)
             
             if query != api_query:
                 log_search(query, len(result_df))
             
             if len(result_df) > 0:
-                result_df['relevance_score'] = 0
-                for kw in keywords:
-                    kw_lower = kw.lower()
-                    title_match = result_df['title'].str.lower().str.contains(kw_lower, regex=False, na=False)
-                    result_df.loc[title_match, 'relevance_score'] += 10
-                    content_match = result_df['search_normalized'].str.lower().str.contains(kw_lower, regex=False, na=False)
-                    result_df.loc[content_match, 'relevance_score'] += 1
-                
-                result_df = result_df.sort_values(by='relevance_score', ascending=False)
+                if dropped:
+                    st.caption(f"검색어가 다 맞는 지침이 없어서 '{', '.join(dropped)}'을(를) 빼고 찾은 결과입니다.")
                 
                 col_res1, col_res2 = st.columns([7, 3])
                 with col_res1:
